@@ -5,6 +5,8 @@ import DrawingOverlay from "@/components/DrawingOverlay";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -17,7 +19,7 @@ const fileToBase64 = (file: File): Promise<string> =>
   });
 
 const Editor = () => {
-  const { versions, currentVersionIndex, addVersion, undoVersion, isGenerating, setIsGenerating } = useImageEditor();
+  const { rows, versions, currentVersionIndex, addVersion, undoVersion, isGenerating, setIsGenerating } = useImageEditor();
   const [prompt, setPrompt] = useState("");
   const [isAnnotating, setIsAnnotating] = useState(false);
   const [annotatedImage, setAnnotatedImage] = useState<string | null>(null);
@@ -274,6 +276,34 @@ const Editor = () => {
           </Button>
         </div>
       </div>
+
+      {/* Setup images */}
+      {rows.some((r) => r.imageData) && (
+        <div className="border-t border-border bg-card px-4 py-3">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Imagens do Projeto
+          </h3>
+          <ScrollArea className="w-full">
+            <div className="flex gap-3 pb-1">
+              {rows.filter((r) => r.imageData).map((r) => (
+                <div key={r.id} className="flex flex-col items-center gap-1">
+                  <img
+                    src={r.imageData!}
+                    alt={r.isPrimary ? "Foto Principal" : "Referência"}
+                    className={cn(
+                      "h-14 w-14 rounded object-cover border-2",
+                      r.isPrimary ? "border-primary" : "border-transparent"
+                    )}
+                  />
+                  <span className="text-[9px] font-medium text-muted-foreground">
+                    {r.isPrimary ? "Principal" : "Ref."}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
+      )}
 
       {/* Version history */}
       <VersionHistory />
