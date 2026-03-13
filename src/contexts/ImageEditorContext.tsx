@@ -10,6 +10,7 @@ export interface ImageRow {
 export interface ImageVersion {
   label: string;
   imageData: string;
+  prompt?: string;
 }
 
 export interface Project {
@@ -31,7 +32,7 @@ interface ImageEditorContextType {
   removeRow: (id: string) => void;
   updateRow: (id: string, updates: Partial<Omit<ImageRow, "id">>) => void;
   setPrimary: (id: string) => void;
-  addVersion: (imageData: string) => void;
+  addVersion: (imageData: string, prompt?: string) => void;
   deleteVersion: (index: number) => void;
   setCurrentVersion: (index: number) => void;
   undoVersion: () => void;
@@ -158,9 +159,9 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setRows((prev) => prev.map((r) => ({ ...r, isPrimary: r.id === id })));
   }, []);
 
-  const addVersion = useCallback((imageData: string) => {
+  const addVersion = useCallback((imageData: string, prompt?: string) => {
     setVersions((prev) => {
-      const next = [...prev, { label: `Versão ${prev.length + 1}`, imageData }];
+      const next = [...prev, { label: `Versão ${prev.length + 1}`, imageData, prompt }];
       setCurrentVersionIndex(next.length - 1);
       return next;
     });
