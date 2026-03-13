@@ -217,12 +217,12 @@ const Editor = () => {
         />
       )}
 
-      <div className="flex flex-1 items-center justify-center overflow-auto p-6">
+      <div className="flex flex-1 flex-col items-center justify-center overflow-auto p-6">
         <div className="relative">
           <img
             src={annotatedImage || currentImage}
             alt="Imagem atual"
-            className="max-h-[60vh] max-w-full rounded-lg border border-border object-contain shadow-sm"
+            className="max-h-[55vh] max-w-full rounded-lg border border-border object-contain shadow-sm"
           />
           {annotatedImage && (
             <div className="absolute -top-2 -right-2 rounded-full bg-destructive px-2 py-0.5 text-xs text-destructive-foreground">
@@ -230,6 +230,18 @@ const Editor = () => {
             </div>
           )}
         </div>
+        {(() => {
+          let caption = "";
+          if (selectedSetupImageIndex !== null && setupImages[selectedSetupImageIndex]) {
+            const row = setupImages[selectedSetupImageIndex];
+            caption = row.instructions || (row.isPrimary ? "Foto Principal" : `Imagem de referência ${selectedSetupImageIndex + 1}`);
+          } else if (currentVersionIndex >= 0 && versions[currentVersionIndex]) {
+            caption = versions[currentVersionIndex].label;
+          }
+          return caption ? (
+            <p className="mt-3 max-w-xl text-center text-sm text-muted-foreground">{caption}</p>
+          ) : null;
+        })()}
       </div>
 
       {attachedImages.length > 0 && (
