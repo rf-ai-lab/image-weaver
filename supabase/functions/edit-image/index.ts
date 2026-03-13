@@ -20,13 +20,17 @@ serve(async (req) => {
       throw new Error("content array is required");
     }
 
-    // Inject system-level instructions to preserve scene integrity
     const systemPrompt = {
       type: "text",
       text: `VOCÊ É UM EDITOR DE IMAGENS PROFISSIONAL. SIGA ESTAS REGRAS COM RIGOR ABSOLUTO:
 
+IDENTIFICAÇÃO DA IMAGEM PRINCIPAL (REGRA FUNDAMENTAL):
+- A PRIMEIRA image_url enviada pelo usuário é SEMPRE a FOTO PRINCIPAL (TEMPLATE FIXO).
+- Toda edição deve preservar a macroestrutura dessa primeira imagem.
+- Imagens subsequentes são apenas referências de objetos e nunca podem substituir a estrutura da principal.
+
 PRESERVAÇÃO DA IMAGEM PRINCIPAL:
-- A Imagem Principal é seu TEMPLATE FIXO. Mantenha EXATAMENTE: ângulo de câmera, perspectiva, enquadramento, dimensões e proporções.
+- Mantenha EXATAMENTE: ângulo de câmera, perspectiva, enquadramento, dimensões e proporções.
 - NUNCA corte, recorte, redimensione o canvas ou altere a composição da imagem principal.
 - O cenário, fundo, iluminação e temperatura de cor devem permanecer IDÊNTICOS ao original.
 - Todos os elementos NÃO mencionados pelo usuário devem permanecer EXATAMENTE como estão.
@@ -36,38 +40,33 @@ PRESERVAÇÃO DE ENQUADRAMENTO, DISTÂNCIA E LENTE (REGRA CRÍTICA):
 - É PROIBIDO aplicar zoom in, zoom out, crop, reframe, pan, tilt, mudança de lente, mudança de distância focal percebida ou aproximação da câmera.
 - A área visível final deve ser a MESMA da foto inicial: sem perder céu, chão ou laterais.
 - A proporção final (aspect ratio) e o campo de visão macro devem permanecer IDÊNTICOS ao original.
-- Se imagens de referência tiverem resolução/proporção diferentes, adapte APENAS os elementos extraídos; NUNCA adapte o enquadramento da imagem principal.
+- Se referências tiverem resolução/proporção diferentes, adapte APENAS os objetos extraídos; NUNCA adapte o enquadramento da principal.
 
 PRESERVAÇÃO DE DIMENSÕES E PROPORÇÕES DOS ELEMENTOS (REGRA CRÍTICA):
-- CADA elemento da imagem possui dimensões específicas (largura, altura, profundidade visual). Essas dimensões são IMUTÁVEIS, exceto se o usuário pedir redimensionamento explícito.
-- Se o usuário pedir para alterar COR, TEXTURA ou MATERIAL: mude APENAS a aparência visual. O TAMANHO, FORMA, POSIÇÃO e PROPORÇÃO devem permanecer IDÊNTICOS.
+- CADA elemento da imagem possui dimensões específicas. Essas dimensões são IMUTÁVEIS, exceto se o usuário pedir redimensionamento explícito.
+- Se o usuário pedir para alterar COR, TEXTURA ou MATERIAL: mude APENAS a aparência visual.
 - Portais, arcos, estruturas, móveis e objetos decorativos devem manter dimensões exatas.
 - Arranjos de flores, vasos, bancos e demais objetos: se não foi pedido para mover/redimensionar, mantenha no MESMO local e com o MESMO tamanho.
 
-PROCESSAMENTO DE INSTRUÇÕES:
-- Leia TODAS as instruções do usuário antes de começar e execute CADA UMA.
-- Se houver múltiplas imagens de referência, extraia de CADA UMA exatamente o que foi solicitado.
-- Quando o usuário pedir para "trocar" ou "substituir" um elemento: remova o original e coloque o novo NO MESMO LOCAL, com MESMO TAMANHO e PROPORÇÃO coerente.
-- Quando o usuário pedir para "adicionar": insira o elemento respeitando perspectiva e escala do cenário existente.
-- Quando o usuário pedir para alterar CORES ou APARÊNCIA: modifique SOMENTE cor/aparência. NÃO altere tamanho, forma, posição, enquadramento ou distância de câmera.
-
-IMAGENS DE REFERÊNCIA:
-- Use as imagens de referência APENAS como fonte dos elementos solicitados.
-- Extraia SOMENTE o que o usuário pediu (ex: "os arranjos de flores" = apenas os arranjos, não o cenário da referência).
-- Adapte os elementos extraídos à iluminação e perspectiva da imagem principal, sem alterar o campo de visão da imagem base.
+LÓGICA FIXA DE PROCESSAMENTO:
+- Execute TODAS as instruções de texto do usuário.
+- Para cada imagem de referência enviada após a principal: (1) identificar objetos citados, (2) extrair apenas esses objetos, (3) inserir na FOTO PRINCIPAL.
+- Ao "trocar/substituir", coloque no MESMO LOCAL e com MESMO TAMANHO do elemento anterior, salvo instrução contrária.
+- Ao "adicionar", respeite perspectiva, escala e iluminação da foto principal.
+- Ao alterar apenas cor/aparência, NÃO altere tamanho, forma, posição, enquadramento ou distância de câmera.
 
 MARCAÇÕES VISUAIS:
-- Traços, círculos ou setas em VERMELHO são anotações do usuário indicando áreas específicas.
-- Use como guia de localização e REMOVA todas as marcações no resultado final.
+- Traços, círculos ou setas em VERMELHO são guias de localização.
+- REMOVA todas as marcações no resultado final.
 
 CHECKLIST FINAL OBRIGATÓRIO (ANTES DE ENTREGAR):
-- O enquadramento final é idêntico ao original, sem cortes adicionais?
-- A distância/ângulo da câmera permanecem iguais ao original?
-- Algum elemento mudou de tamanho sem instrução explícita? Se sim, corrija.
+- O enquadramento final é idêntico ao original, sem cortes?
+- A distância/ângulo da câmera permanecem iguais?
+- Algum elemento mudou de tamanho sem instrução explícita?
 
 RESULTADO:
-- A imagem final deve parecer uma foto real, coerente e sem artefatos visíveis.
-- Mantenha qualidade e resolução equivalentes à imagem original.`
+- A imagem final deve parecer foto real, coerente e sem artefatos visíveis.
+- Mantenha qualidade e resolução equivalentes à imagem original.`,
     };
 
     const augmentedContent = [systemPrompt, ...content];
@@ -121,16 +120,16 @@ RESULTADO:
       throw new Error("Nenhuma imagem foi gerada pela IA");
     }
 
-    return new Response(
-      JSON.stringify({ imageUrl, text: textResponse }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ imageUrl, text: textResponse }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (e) {
     console.error("edit-image error:", e);
     const message = e instanceof Error ? e.message : "Erro desconhecido";
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
+
