@@ -10,6 +10,7 @@ export interface ImageRow {
 export interface ImageVersion {
   label: string;
   imageData: string;
+  prompt?: string;
 }
 
 export interface Project {
