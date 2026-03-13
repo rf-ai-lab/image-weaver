@@ -124,7 +124,7 @@ const Editor = () => {
       if (error) throw error;
       if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada");
 
-      addVersion(data.imageUrl);
+      addVersion(data.imageUrl, prompt);
       setSelectedSetupImageIndex(null);
       setPrompt("");
       setAnnotatedImage(null);
