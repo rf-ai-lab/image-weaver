@@ -5,8 +5,6 @@ import DrawingOverlay from "@/components/DrawingOverlay";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -19,16 +17,31 @@ const fileToBase64 = (file: File): Promise<string> =>
   });
 
 const Editor = () => {
-  const { rows, versions, currentVersionIndex, addVersion, undoVersion, isGenerating, setIsGenerating } = useImageEditor();
+  const {
+    rows,
+    versions,
+    currentVersionIndex,
+    addVersion,
+    undoVersion,
+    setCurrentVersion,
+    isGenerating,
+    setIsGenerating,
+  } = useImageEditor();
+
   const [prompt, setPrompt] = useState("");
   const [isAnnotating, setIsAnnotating] = useState(false);
   const [annotatedImage, setAnnotatedImage] = useState<string | null>(null);
   const [attachedImages, setAttachedImages] = useState<{ name: string; data: string }[]>([]);
+  const [selectedSetupImageIndex, setSelectedSetupImageIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  const currentImage = versions[currentVersionIndex]?.imageData;
+  const setupImages = rows.filter((r) => Boolean(r.imageData));
+  const versionImage = versions[currentVersionIndex]?.imageData;
+  const selectedSetupImage =
+    selectedSetupImageIndex !== null ? setupImages[selectedSetupImageIndex]?.imageData ?? null : null;
+  const currentImage = selectedSetupImage || versionImage;
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
@@ -53,7 +66,14 @@ const Editor = () => {
       return;
     }
 
+    const primaryImage = rows.find((r) => r.isPrimary)?.imageData;
+    if (!primaryImage) {
+      toast.error("Defina uma Foto Principal no setup para manter a estrutura.");
+      return;
+    }
+
     if (prompt.toLowerCase().includes("volte para a versão anterior") || prompt.toLowerCase().includes("desfazer")) {
+      setSelectedSetupImageIndex(null);
       undoVersion();
       setPrompt("");
       toast.info("Voltou para a versão anterior.");
@@ -65,15 +85,31 @@ const Editor = () => {
       const imageToSend = annotatedImage || currentImage;
 
       const content: any[] = [
-        { type: "text", text: `Edite esta imagem conforme solicitado. Execute TODAS as instruções a seguir: ${prompt}` },
+        {
+          type: "text",
+          text:
+            "LÓGICA FIXA: preserve SEMPRE macro/enquadramento/ângulo/zoom/câmera da Foto Principal. Use a imagem de trabalho apenas para estado visual atual.",
+        },
+        {
+          type: "text",
+          text: "Foto Principal (estrutura obrigatória):",
+        },
+        { type: "image_url", image_url: { url: primaryImage } },
+        {
+          type: "text",
+          text: "Imagem de trabalho (estado atual para edição):",
+        },
         { type: "image_url", image_url: { url: imageToSend } },
+        {
+          type: "text",
+          text: `Instrução do usuário (execute todas): ${prompt}`,
+        },
       ];
 
-      // Append attached reference images
       attachedImages.forEach((img, i) => {
         content.push({
           type: "text",
-          text: `Imagem de referência anexada ${i + 1} (${img.name}):`,
+          text: `Imagem de referência anexada ${i + 1} (${img.name}): identifique apenas os objetos citados, extraia e aplique na Foto Principal sem alterar enquadramento/zoom.`,
         });
         content.push({
           type: "image_url",
@@ -89,6 +125,7 @@ const Editor = () => {
       if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada");
 
       addVersion(data.imageUrl);
+      setSelectedSetupImageIndex(null);
       setPrompt("");
       setAnnotatedImage(null);
       setAttachedImages([]);
@@ -114,15 +151,16 @@ const Editor = () => {
     toast.info("Marcações aplicadas! Agora descreva o que deseja alterar nas áreas marcadas.");
   };
 
-  // Drag & drop handlers
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
   };
+
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
   };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
@@ -148,7 +186,9 @@ const Editor = () => {
   if (versions.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <p className="text-muted-foreground">Nenhuma imagem gerada ainda. Volte para a Configuração e gere a primeira versão.</p>
+        <p className="text-muted-foreground">
+          Nenhuma imagem gerada ainda. Volte para a Configuração e gere a primeira versão.
+        </p>
       </div>
     );
   }
@@ -161,7 +201,6 @@ const Editor = () => {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Drag overlay */}
       {isDragging && (
         <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-primary/10 backdrop-blur-sm">
           <div className="rounded-xl border-2 border-dashed border-primary bg-card px-8 py-6 text-lg font-medium text-primary shadow-lg">
@@ -170,7 +209,6 @@ const Editor = () => {
         </div>
       )}
 
-      {/* Annotation overlay */}
       {isAnnotating && currentImage && (
         <DrawingOverlay
           imageUrl={currentImage}
@@ -179,12 +217,11 @@ const Editor = () => {
         />
       )}
 
-      {/* Main image */}
       <div className="flex flex-1 items-center justify-center overflow-auto p-6">
         <div className="relative">
           <img
             src={annotatedImage || currentImage}
-            alt={`Versão ${currentVersionIndex + 1}`}
+            alt="Imagem atual"
             className="max-h-[60vh] max-w-full rounded-lg border border-border object-contain shadow-sm"
           />
           {annotatedImage && (
@@ -195,17 +232,12 @@ const Editor = () => {
         </div>
       </div>
 
-      {/* Attached images preview */}
       {attachedImages.length > 0 && (
         <div className="border-t border-border bg-muted/50 px-6 py-2">
           <div className="mx-auto flex max-w-2xl gap-2 overflow-x-auto">
             {attachedImages.map((img, i) => (
               <div key={i} className="group relative flex-shrink-0">
-                <img
-                  src={img.data}
-                  alt={img.name}
-                  className="h-12 w-12 rounded border border-border object-cover"
-                />
+                <img src={img.data} alt={img.name} className="h-12 w-12 rounded border border-border object-cover" />
                 <button
                   onClick={() => removeAttached(i)}
                   className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
@@ -221,17 +253,25 @@ const Editor = () => {
         </div>
       )}
 
-      {/* Refinement input */}
       <div className="border-t border-border bg-card px-6 py-4">
         <div className="mx-auto flex max-w-2xl items-end gap-2">
-          <Button variant="outline" size="icon" onClick={undoVersion} disabled={currentVersionIndex <= 0} title="Desfazer">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => {
+              setSelectedSetupImageIndex(null);
+              undoVersion();
+            }}
+            disabled={currentVersionIndex <= 0}
+            title="Desfazer"
+          >
             <Undo2 className="h-4 w-4" />
           </Button>
           <Button
             variant={annotatedImage ? "default" : "outline"}
             size="icon"
             onClick={() => setIsAnnotating(true)}
-            disabled={isGenerating}
+            disabled={isGenerating || !currentImage}
             title="Marcar na imagem"
           >
             <PenTool className="h-4 w-4" />
@@ -265,8 +305,8 @@ const Editor = () => {
               annotatedImage
                 ? "Descreva o que alterar nas áreas marcadas..."
                 : attachedImages.length > 0
-                ? "Descreva o que fazer com as imagens anexadas..."
-                : "Descreva as alterações desejadas..."
+                  ? "Descreva o que fazer com as imagens anexadas..."
+                  : "Descreva as alterações desejadas..."
             }
             className="min-h-[44px] max-h-[120px] resize-none text-sm"
             disabled={isGenerating}
@@ -277,36 +317,19 @@ const Editor = () => {
         </div>
       </div>
 
-      {/* Setup images */}
-      {rows.some((r) => r.imageData) && (
-        <div className="border-t border-border bg-card px-4 py-3">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Imagens do Projeto
-          </h3>
-          <ScrollArea className="w-full">
-            <div className="flex gap-3 pb-1">
-              {rows.filter((r) => r.imageData).map((r) => (
-                <div key={r.id} className="flex flex-col items-center gap-1">
-                  <img
-                    src={r.imageData!}
-                    alt={r.isPrimary ? "Foto Principal" : "Referência"}
-                    className={cn(
-                      "h-14 w-14 rounded object-cover border-2",
-                      r.isPrimary ? "border-primary" : "border-transparent"
-                    )}
-                  />
-                  <span className="text-[9px] font-medium text-muted-foreground">
-                    {r.isPrimary ? "Principal" : "Ref."}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-        </div>
-      )}
-
-      {/* Version history */}
-      <VersionHistory />
+      <VersionHistory
+        setupImages={setupImages}
+        selectedSetupImageIndex={selectedSetupImageIndex}
+        onSelectSetupImage={(index) => {
+          setSelectedSetupImageIndex(index);
+          setAnnotatedImage(null);
+        }}
+        onSelectVersion={(index) => {
+          setSelectedSetupImageIndex(null);
+          setAnnotatedImage(null);
+          setCurrentVersion(index);
+        }}
+      />
     </div>
   );
 };

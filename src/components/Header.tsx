@@ -21,29 +21,34 @@ const Header = () => {
 
     setIsGenerating(true);
     try {
-      // Build content array: primary image + instructions from all rows
+      // Build deterministic payload: primary image first, references after
       const content: any[] = [];
-      let promptText = "Você é um editor de imagens profissional. ";
-      
-      rows.forEach((row, i) => {
-        if (row.isPrimary) {
-          promptText += `\n\nImagem principal (Imagem ${i + 1}): Use esta como base.`;
-          if (row.instructions) promptText += ` Instruções: ${row.instructions}`;
-        } else if (row.imageData && row.instructions) {
-          promptText += `\n\nImagem de referência ${i + 1}: ${row.instructions}. Extraia o que foi solicitado e adicione na imagem principal.`;
-        }
+      const references = rows.filter((r) => !r.isPrimary && r.imageData);
+
+      content.push({
+        type: "text",
+        text: "LÓGICA FIXA: a PRIMEIRA image_url é sempre a Foto Principal (estrutura macro fixa: ângulo, zoom, enquadramento e distância). Referências servem apenas para extrair objetos citados e aplicar na principal.",
       });
 
-      content.push({ type: "text", text: promptText });
+      content.push({
+        type: "text",
+        text: `Foto Principal (base estrutural obrigatória). ${primary.instructions ? `Instruções adicionais: ${primary.instructions}` : ""}`,
+      });
 
-      // Add all images
-      rows.forEach((row) => {
-        if (row.imageData) {
-          content.push({
-            type: "image_url",
-            image_url: { url: row.imageData },
-          });
-        }
+      content.push({
+        type: "image_url",
+        image_url: { url: primary.imageData },
+      });
+
+      references.forEach((row, i) => {
+        content.push({
+          type: "text",
+          text: `Imagem de referência ${i + 1}: ${row.instructions || "identifique objetos relevantes"}. Extraia apenas o que foi solicitado e aplique na foto principal sem alterar enquadramento/zoom.`,
+        });
+        content.push({
+          type: "image_url",
+          image_url: { url: row.imageData! },
+        });
       });
 
       const { data, error } = await supabase.functions.invoke("edit-image", {
