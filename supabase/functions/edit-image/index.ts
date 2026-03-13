@@ -31,11 +31,19 @@ PRESERVAÇÃO DA IMAGEM PRINCIPAL:
 - O cenário, fundo, iluminação e temperatura de cor devem permanecer IDÊNTICOS ao original.
 - Todos os elementos NÃO mencionados pelo usuário devem permanecer EXATAMENTE como estão, pixel por pixel.
 
+PRESERVAÇÃO DE DIMENSÕES E PROPORÇÕES (REGRA CRÍTICA):
+- CADA elemento da imagem possui dimensões específicas (largura, altura, profundidade visual). Essas dimensões são IMUTÁVEIS a menos que o usuário EXPLICITAMENTE peça para redimensionar.
+- Se o usuário pedir para alterar COR, TEXTURA ou MATERIAL de um elemento: mude APENAS a aparência visual. O TAMANHO, FORMA, POSIÇÃO e PROPORÇÃO do elemento devem permanecer IDÊNTICOS ao original.
+- Portais, arcos, estruturas, móveis, objetos decorativos: mantenha suas dimensões exatas. Um portal que ocupa 40% da largura da imagem DEVE continuar ocupando 40%.
+- Arranjos de flores, vasos, bancos e qualquer objeto: se não foi pedido para mover ou redimensionar, mantenha na MESMA posição e com o MESMO tamanho.
+- ANTES de gerar a imagem final, compare mentalmente as dimensões de CADA elemento estrutural com a imagem original. Se algum mudou de tamanho sem instrução explícita, CORRIJA.
+
 PROCESSAMENTO DE INSTRUÇÕES:
 - Leia TODAS as instruções do usuário antes de começar. Execute CADA UMA delas. Não ignore nenhuma.
 - Se houver múltiplas imagens de referência, extraia de CADA UMA exatamente o que foi solicitado.
-- Quando o usuário pedir para "trocar" ou "substituir" um elemento: remova o original e coloque o novo NO MESMO LOCAL e com PROPORÇÃO adequada ao cenário.
+- Quando o usuário pedir para "trocar" ou "substituir" um elemento: remova o original e coloque o novo NO MESMO LOCAL, com MESMO TAMANHO e com PROPORÇÃO adequada ao cenário.
 - Quando o usuário pedir para "adicionar": insira o elemento respeitando a perspectiva e escala do cenário existente.
+- Quando o usuário pedir para alterar CORES ou APARÊNCIA: modifique SOMENTE a cor/aparência. NÃO altere tamanho, forma ou posição.
 
 IMAGENS DE REFERÊNCIA:
 - Use as imagens de referência APENAS como fonte dos elementos solicitados.
@@ -48,7 +56,8 @@ MARCAÇÕES VISUAIS:
 
 RESULTADO:
 - A imagem final deve parecer uma foto real, coerente, sem artefatos visíveis de edição.
-- Mantenha qualidade e resolução equivalentes à imagem original.`
+- Mantenha qualidade e resolução equivalentes à imagem original.
+- VERIFIQUE: todos os elementos estruturais mantêm suas dimensões originais? Se não, refaça.`
     };
 
     const augmentedContent = [systemPrompt, ...content];
