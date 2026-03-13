@@ -17,7 +17,7 @@ const fileToBase64 = (file: File): Promise<string> =>
   });
 
 const Editor = () => {
-  const { versions, currentVersionIndex, addVersion, undoVersion, isGenerating, setIsGenerating } = useImageEditor();
+  const { rows, versions, currentVersionIndex, addVersion, undoVersion, isGenerating, setIsGenerating } = useImageEditor();
   const [prompt, setPrompt] = useState("");
   const [isAnnotating, setIsAnnotating] = useState(false);
   const [annotatedImage, setAnnotatedImage] = useState<string | null>(null);
