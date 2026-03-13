@@ -32,7 +32,7 @@ interface ImageEditorContextType {
   removeRow: (id: string) => void;
   updateRow: (id: string, updates: Partial<Omit<ImageRow, "id">>) => void;
   setPrimary: (id: string) => void;
-  addVersion: (imageData: string) => void;
+  addVersion: (imageData: string, prompt?: string) => void;
   deleteVersion: (index: number) => void;
   setCurrentVersion: (index: number) => void;
   undoVersion: () => void;
