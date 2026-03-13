@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ImageEditorProvider } from "@/contexts/ImageEditorContext";
 import Header from "@/components/Header";
+import Projects from "@/pages/Projects";
 import Setup from "@/pages/Setup";
 import Editor from "@/pages/Editor";
 import NotFound from "@/pages/NotFound";
@@ -22,7 +23,8 @@ const App = () => (
             <Header />
             <main className="flex flex-1 flex-col">
               <Routes>
-                <Route path="/" element={<Setup />} />
+                <Route path="/" element={<Projects />} />
+                <Route path="/setup" element={<Setup />} />
                 <Route path="/editor" element={<Editor />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>

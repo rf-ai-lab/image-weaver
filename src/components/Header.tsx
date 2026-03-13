@@ -10,7 +10,7 @@ const Header = () => {
   const { rows, isGenerating, setIsGenerating, addVersion } = useImageEditor();
   const navigate = useNavigate();
   const location = useLocation();
-  const isSetup = location.pathname === "/";
+  const isSetup = location.pathname === "/setup";
 
   const handleGenerate = async () => {
     const primary = rows.find((r) => r.isPrimary);
@@ -71,8 +71,16 @@ const Header = () => {
           to="/"
           className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
           activeClassName="text-foreground"
+          end
         >
-          Configuração
+          Projetos
+        </NavLink>
+        <NavLink
+          to="/setup"
+          className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          activeClassName="text-foreground"
+        >
+          Projeto em Andamento
         </NavLink>
         <NavLink
           to="/editor"

@@ -9,7 +9,7 @@ const Setup = () => {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Configuração de Imagens</h1>
+        <h1 className="text-2xl font-bold text-foreground">Projeto em Andamento</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Adicione imagens e defina o que extrair de cada uma. Marque uma como Foto Principal — ela será a base da edição.
         </p>
