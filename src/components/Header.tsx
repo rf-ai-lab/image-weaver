@@ -10,7 +10,7 @@ const Header = () => {
   const { rows, isGenerating, setIsGenerating, addVersion } = useImageEditor();
   const navigate = useNavigate();
   const location = useLocation();
-  const isSetup = location.pathname === "/";
+  const isSetup = location.pathname === "/setup";
 
   const handleGenerate = async () => {
     const primary = rows.find((r) => r.isPrimary);

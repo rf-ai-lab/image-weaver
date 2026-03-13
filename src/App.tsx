@@ -23,7 +23,8 @@ const App = () => (
             <Header />
             <main className="flex flex-1 flex-col">
               <Routes>
-                <Route path="/" element={<Setup />} />
+                <Route path="/" element={<Projects />} />
+                <Route path="/setup" element={<Setup />} />
                 <Route path="/editor" element={<Editor />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>

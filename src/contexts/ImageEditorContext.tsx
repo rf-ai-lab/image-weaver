@@ -2,24 +2,31 @@ import React, { createContext, useContext, useState, useCallback } from "react";
 
 export interface ImageRow {
   id: string;
-  imageData: string | null; // base64
+  imageData: string | null;
   instructions: string;
   isPrimary: boolean;
 }
 
 export interface ImageVersion {
   label: string;
-  imageData: string; // base64
+  imageData: string;
 }
 
-interface ImageEditorState {
+export interface Project {
+  id: string;
+  name: string;
+  rows: ImageRow[];
+  versions: ImageVersion[];
+  currentVersionIndex: number;
+}
+
+interface ImageEditorContextType {
   rows: ImageRow[];
   versions: ImageVersion[];
   currentVersionIndex: number;
   isGenerating: boolean;
-}
-
-interface ImageEditorContextType extends ImageEditorState {
+  activeProjectId: string | null;
+  projects: Project[];
   addRow: () => void;
   removeRow: (id: string) => void;
   updateRow: (id: string, updates: Partial<Omit<ImageRow, "id">>) => void;
@@ -28,6 +35,9 @@ interface ImageEditorContextType extends ImageEditorState {
   setCurrentVersion: (index: number) => void;
   undoVersion: () => void;
   setIsGenerating: (v: boolean) => void;
+  createProject: (name: string) => void;
+  deleteProject: (id: string) => void;
+  loadProject: (id: string) => void;
 }
 
 const ImageEditorContext = createContext<ImageEditorContextType | null>(null);
@@ -40,14 +50,93 @@ const makeRow = (): ImageRow => ({
   isPrimary: rowCounter++ === 1,
 });
 
+const makeFirstRow = (): ImageRow => ({
+  id: crypto.randomUUID(),
+  imageData: null,
+  instructions: "",
+  isPrimary: true,
+});
+
 export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [rows, setRows] = useState<ImageRow[]>([makeRow()]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [rows, setRows] = useState<ImageRow[]>([makeFirstRow()]);
   const [versions, setVersions] = useState<ImageVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
   const [isGenerating, setIsGenerating] = useState(false);
 
+  const saveCurrentToProject = useCallback(() => {
+    if (!activeProjectId) return;
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === activeProjectId
+          ? { ...p, rows, versions, currentVersionIndex }
+          : p
+      )
+    );
+  }, [activeProjectId, rows, versions, currentVersionIndex]);
+
+  const createProject = useCallback((name: string) => {
+    // Save current project first
+    if (activeProjectId) {
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === activeProjectId
+            ? { ...p, rows, versions, currentVersionIndex }
+            : p
+        )
+      );
+    }
+    const newRow = makeFirstRow();
+    const newProject: Project = {
+      id: crypto.randomUUID(),
+      name,
+      rows: [newRow],
+      versions: [],
+      currentVersionIndex: -1,
+    };
+    setProjects((prev) => [...prev, newProject]);
+    setActiveProjectId(newProject.id);
+    setRows([newRow]);
+    setVersions([]);
+    setCurrentVersionIndex(-1);
+  }, [activeProjectId, rows, versions, currentVersionIndex]);
+
+  const deleteProject = useCallback((id: string) => {
+    setProjects((prev) => prev.filter((p) => p.id !== id));
+    if (activeProjectId === id) {
+      setActiveProjectId(null);
+      setRows([makeFirstRow()]);
+      setVersions([]);
+      setCurrentVersionIndex(-1);
+    }
+  }, [activeProjectId]);
+
+  const loadProject = useCallback((id: string) => {
+    // Save current first
+    if (activeProjectId) {
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === activeProjectId
+            ? { ...p, rows, versions, currentVersionIndex }
+            : p
+        )
+      );
+    }
+    setProjects((prev) => {
+      const target = prev.find((p) => p.id === id);
+      if (target) {
+        setRows(target.rows);
+        setVersions(target.versions);
+        setCurrentVersionIndex(target.currentVersionIndex);
+        setActiveProjectId(id);
+      }
+      return prev;
+    });
+  }, [activeProjectId, rows, versions, currentVersionIndex]);
+
   const addRow = useCallback(() => {
-    setRows((prev) => [...prev, { ...makeRow(), isPrimary: false }]);
+    setRows((prev) => [...prev, { id: crypto.randomUUID(), imageData: null, instructions: "", isPrimary: false }]);
   }, []);
 
   const removeRow = useCallback((id: string) => {
@@ -71,13 +160,8 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const addVersion = useCallback((imageData: string) => {
     setVersions((prev) => {
       const next = [...prev, { label: `Versão ${prev.length + 1}`, imageData }];
+      setCurrentVersionIndex(next.length - 1);
       return next;
-    });
-    setCurrentVersionIndex((prev) => prev + 1);
-    // Fix: we need versions length at time of call
-    setVersions((prev) => {
-      setCurrentVersionIndex(prev.length - 1);
-      return prev;
     });
   }, []);
 
@@ -96,6 +180,8 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         versions,
         currentVersionIndex,
         isGenerating,
+        activeProjectId,
+        projects,
         addRow,
         removeRow,
         updateRow,
@@ -104,6 +190,9 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         setCurrentVersion,
         undoVersion,
         setIsGenerating,
+        createProject,
+        deleteProject,
+        loadProject,
       }}
     >
       {children}
