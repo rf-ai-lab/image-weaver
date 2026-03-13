@@ -26,25 +26,34 @@ const DrawingOverlay: React.FC<DrawingOverlayProps> = ({ imageUrl, onAnnotatedIm
   // Load image and set canvas size
   useEffect(() => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
+    // Only set crossOrigin for non-data URLs
+    if (!imageUrl.startsWith("data:")) {
+      img.crossOrigin = "anonymous";
+    }
     img.onload = () => {
       imgRef.current = img;
-      const container = containerRef.current;
-      if (!container) return;
 
-      const maxW = container.clientWidth - 32;
-      const maxH = container.clientHeight - 120;
+      // Use window dimensions as fallback if container not ready
+      const container = containerRef.current;
+      const maxW = (container?.clientWidth || window.innerWidth) - 32;
+      const maxH = (container?.clientHeight || window.innerHeight) - 120;
       const scale = Math.min(maxW / img.width, maxH / img.height, 1);
       const w = Math.round(img.width * scale);
       const h = Math.round(img.height * scale);
       setCanvasSize({ w, h });
 
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d")!;
-      ctx.drawImage(img, 0, 0, w, h);
+      // Need to wait for canvas to update with new size
+      requestAnimationFrame(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, w, h);
+      });
+    };
+    img.onerror = (err) => {
+      console.error("Failed to load image for annotation:", err);
     };
     img.src = imageUrl;
   }, [imageUrl]);
