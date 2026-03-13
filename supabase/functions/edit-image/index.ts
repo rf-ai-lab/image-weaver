@@ -20,6 +20,22 @@ serve(async (req) => {
       throw new Error("content array is required");
     }
 
+    // Inject system-level instructions to preserve scene integrity
+    const systemPrompt = {
+      type: "text",
+      text: `REGRAS OBRIGATÓRIAS QUE VOCÊ DEVE SEGUIR:
+1. NUNCA altere o ângulo da câmera, perspectiva ou enquadramento da imagem. A composição deve permanecer IDÊNTICA.
+2. NUNCA corte, recorte ou redimensione a imagem. Mantenha EXATAMENTE as mesmas dimensões e área visível.
+3. O cenário/fundo deve permanecer ESTÁTICO e inalterado, a menos que explicitamente solicitado pelo usuário.
+4. Apenas modifique os elementos ESPECÍFICOS mencionados pelo usuário. Tudo o que não foi mencionado deve permanecer EXATAMENTE como está.
+5. Se o usuário der MÚLTIPLAS instruções, execute TODAS elas. Não ignore nenhuma instrução. Processe cada pedido individualmente.
+6. Se a imagem contiver marcações visuais (traços vermelhos, círculos, setas em vermelho brilhante), elas são ANOTAÇÕES do usuário indicando EXATAMENTE quais áreas devem ser modificadas. Use essas marcações como guia para localizar as áreas a alterar, mas REMOVA as marcações da imagem final.
+7. Preserve a iluminação, temperatura de cor e estilo visual original.`
+    };
+
+    // Prepend system instructions to content
+    const augmentedContent = [systemPrompt, ...content];
+
     console.log("Calling AI gateway for image editing...");
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -33,7 +49,7 @@ serve(async (req) => {
         messages: [
           {
             role: "user",
-            content,
+            content: augmentedContent,
           },
         ],
         modalities: ["image", "text"],
