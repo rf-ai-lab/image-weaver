@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ImageEditorProvider } from "@/contexts/ImageEditorContext";
 import Header from "@/components/Header";
+import Projects from "@/pages/Projects";
 import Setup from "@/pages/Setup";
 import Editor from "@/pages/Editor";
 import NotFound from "@/pages/NotFound";
