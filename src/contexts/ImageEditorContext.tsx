@@ -201,6 +201,7 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         updateRow,
         setPrimary,
         addVersion,
+        deleteVersion,
         setCurrentVersion,
         undoVersion,
         setIsGenerating,
