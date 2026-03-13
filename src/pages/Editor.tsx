@@ -88,7 +88,7 @@ const Editor = () => {
         {
           type: "text",
           text:
-            "LÓGICA FIXA: preserve SEMPRE macro/enquadramento/ângulo/zoom/câmera da Foto Principal. Use a imagem de trabalho apenas para estado visual atual.",
+            "LÓGICA FIXA: preserve SEMPRE macro/enquadramento/ângulo/zoom/câmera da Foto Principal e NUNCA reintroduza elementos ausentes da imagem de trabalho atual, exceto se o usuário pedir explicitamente.",
         },
         {
           type: "text",
