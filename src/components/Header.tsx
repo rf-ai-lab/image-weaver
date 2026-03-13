@@ -71,8 +71,16 @@ const Header = () => {
           to="/"
           className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
           activeClassName="text-foreground"
+          end
         >
-          Configuração
+          Projetos
+        </NavLink>
+        <NavLink
+          to="/setup"
+          className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          activeClassName="text-foreground"
+        >
+          Projeto em Andamento
         </NavLink>
         <NavLink
           to="/editor"
