@@ -275,6 +275,34 @@ const Editor = () => {
         </div>
       </div>
 
+      {/* Setup images */}
+      {rows.some((r) => r.imageData) && (
+        <div className="border-t border-border bg-card px-4 py-3">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Imagens do Projeto
+          </h3>
+          <ScrollArea className="w-full">
+            <div className="flex gap-3 pb-1">
+              {rows.filter((r) => r.imageData).map((r) => (
+                <div key={r.id} className="flex flex-col items-center gap-1">
+                  <img
+                    src={r.imageData!}
+                    alt={r.isPrimary ? "Foto Principal" : "Referência"}
+                    className={cn(
+                      "h-14 w-14 rounded object-cover border-2",
+                      r.isPrimary ? "border-primary" : "border-transparent"
+                    )}
+                  />
+                  <span className="text-[9px] font-medium text-muted-foreground">
+                    {r.isPrimary ? "Principal" : "Ref."}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
+      )}
+
       {/* Version history */}
       <VersionHistory />
     </div>
