@@ -236,7 +236,8 @@ const Editor = () => {
             const row = setupImages[selectedSetupImageIndex];
             caption = row.instructions || (row.isPrimary ? "Foto Principal" : `Imagem de referência ${selectedSetupImageIndex + 1}`);
           } else if (currentVersionIndex >= 0 && versions[currentVersionIndex]) {
-            caption = versions[currentVersionIndex].label;
+            const v = versions[currentVersionIndex];
+            caption = v.prompt || v.label;
           }
           return caption ? (
             <p className="mt-3 max-w-xl text-center text-sm text-muted-foreground">{caption}</p>

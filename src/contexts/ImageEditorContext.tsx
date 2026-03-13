@@ -159,9 +159,9 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setRows((prev) => prev.map((r) => ({ ...r, isPrimary: r.id === id })));
   }, []);
 
-  const addVersion = useCallback((imageData: string) => {
+  const addVersion = useCallback((imageData: string, prompt?: string) => {
     setVersions((prev) => {
-      const next = [...prev, { label: `Versão ${prev.length + 1}`, imageData }];
+      const next = [...prev, { label: `Versão ${prev.length + 1}`, imageData, prompt }];
       setCurrentVersionIndex(next.length - 1);
       return next;
     });
