@@ -23,20 +23,37 @@ serve(async (req) => {
     // Inject system-level instructions to preserve scene integrity
     const systemPrompt = {
       type: "text",
-      text: `REGRAS OBRIGATÓRIAS QUE VOCÊ DEVE SEGUIR:
-1. NUNCA altere o ângulo da câmera, perspectiva ou enquadramento da imagem. A composição deve permanecer IDÊNTICA.
-2. NUNCA corte, recorte ou redimensione a imagem. Mantenha EXATAMENTE as mesmas dimensões e área visível.
-3. O cenário/fundo deve permanecer ESTÁTICO e inalterado, a menos que explicitamente solicitado pelo usuário.
-4. Apenas modifique os elementos ESPECÍFICOS mencionados pelo usuário. Tudo o que não foi mencionado deve permanecer EXATAMENTE como está.
-5. Se o usuário der MÚLTIPLAS instruções, execute TODAS elas. Não ignore nenhuma instrução. Processe cada pedido individualmente.
-6. Se a imagem contiver marcações visuais (traços vermelhos, círculos, setas em vermelho brilhante), elas são ANOTAÇÕES do usuário indicando EXATAMENTE quais áreas devem ser modificadas. Use essas marcações como guia para localizar as áreas a alterar, mas REMOVA as marcações da imagem final.
-7. Preserve a iluminação, temperatura de cor e estilo visual original.`
+      text: `VOCÊ É UM EDITOR DE IMAGENS PROFISSIONAL. SIGA ESTAS REGRAS COM RIGOR ABSOLUTO:
+
+PRESERVAÇÃO DA IMAGEM PRINCIPAL:
+- A Imagem Principal é seu TEMPLATE FIXO. Mantenha EXATAMENTE: ângulo de câmera, perspectiva, enquadramento, dimensões, proporções.
+- NUNCA corte, recorte, redimensione ou altere a composição da imagem principal.
+- O cenário, fundo, iluminação e temperatura de cor devem permanecer IDÊNTICOS ao original.
+- Todos os elementos NÃO mencionados pelo usuário devem permanecer EXATAMENTE como estão, pixel por pixel.
+
+PROCESSAMENTO DE INSTRUÇÕES:
+- Leia TODAS as instruções do usuário antes de começar. Execute CADA UMA delas. Não ignore nenhuma.
+- Se houver múltiplas imagens de referência, extraia de CADA UMA exatamente o que foi solicitado.
+- Quando o usuário pedir para "trocar" ou "substituir" um elemento: remova o original e coloque o novo NO MESMO LOCAL e com PROPORÇÃO adequada ao cenário.
+- Quando o usuário pedir para "adicionar": insira o elemento respeitando a perspectiva e escala do cenário existente.
+
+IMAGENS DE REFERÊNCIA:
+- Use as imagens de referência APENAS como fonte dos elementos solicitados.
+- Extraia SOMENTE o que o usuário pediu (ex: "os arranjos de flores" = apenas os arranjos, não o cenário da referência).
+- Adapte os elementos extraídos à iluminação e perspectiva da imagem principal.
+
+MARCAÇÕES VISUAIS:
+- Traços, círculos ou setas em VERMELHO são anotações do usuário indicando áreas específicas.
+- Use como guia de localização, mas REMOVA todas as marcações do resultado final.
+
+RESULTADO:
+- A imagem final deve parecer uma foto real, coerente, sem artefatos visíveis de edição.
+- Mantenha qualidade e resolução equivalentes à imagem original.`
     };
 
-    // Prepend system instructions to content
     const augmentedContent = [systemPrompt, ...content];
 
-    console.log("Calling AI gateway for image editing...");
+    console.log("Calling AI gateway with gemini-3.1-flash-image-preview...");
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -45,7 +62,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash-image",
+        model: "google/gemini-3.1-flash-image-preview",
         messages: [
           {
             role: "user",
