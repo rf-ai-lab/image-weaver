@@ -32,6 +32,7 @@ interface ImageEditorContextType {
   updateRow: (id: string, updates: Partial<Omit<ImageRow, "id">>) => void;
   setPrimary: (id: string) => void;
   addVersion: (imageData: string) => void;
+  deleteVersion: (index: number) => void;
   setCurrentVersion: (index: number) => void;
   undoVersion: () => void;
   setIsGenerating: (v: boolean) => void;
@@ -165,6 +166,19 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     });
   }, []);
 
+  const deleteVersion = useCallback((index: number) => {
+    setVersions((prev) => {
+      const next = prev.filter((_, i) => i !== index).map((v, i) => ({ ...v, label: `Versão ${i + 1}` }));
+      setCurrentVersionIndex((cur) => {
+        if (next.length === 0) return -1;
+        if (cur === index) return Math.min(index, next.length - 1);
+        if (cur > index) return cur - 1;
+        return cur;
+      });
+      return next;
+    });
+  }, []);
+
   const setCurrentVersion = useCallback((index: number) => {
     setCurrentVersionIndex(index);
   }, []);
@@ -187,6 +201,7 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         updateRow,
         setPrimary,
         addVersion,
+        deleteVersion,
         setCurrentVersion,
         undoVersion,
         setIsGenerating,
