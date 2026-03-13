@@ -1,20 +1,48 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useImageEditor } from "@/contexts/ImageEditorContext";
 import VersionHistory from "@/components/VersionHistory";
 import DrawingOverlay from "@/components/DrawingOverlay";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Send, Undo2, PenTool } from "lucide-react";
+import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+
+const fileToBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 
 const Editor = () => {
   const { versions, currentVersionIndex, addVersion, undoVersion, isGenerating, setIsGenerating } = useImageEditor();
   const [prompt, setPrompt] = useState("");
   const [isAnnotating, setIsAnnotating] = useState(false);
   const [annotatedImage, setAnnotatedImage] = useState<string | null>(null);
+  const [attachedImages, setAttachedImages] = useState<{ name: string; data: string }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const currentImage = versions[currentVersionIndex]?.imageData;
+
+  const addFiles = useCallback(async (files: FileList | File[]) => {
+    const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (imageFiles.length === 0) {
+      toast.error("Apenas arquivos de imagem são aceitos.");
+      return;
+    }
+    const newImages = await Promise.all(
+      imageFiles.map(async (f) => ({ name: f.name, data: await fileToBase64(f) }))
+    );
+    setAttachedImages((prev) => [...prev, ...newImages]);
+  }, []);
+
+  const removeAttached = (index: number) => {
+    setAttachedImages((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const handleRefine = async () => {
     if (!prompt.trim()) return;
@@ -32,13 +60,24 @@ const Editor = () => {
 
     setIsGenerating(true);
     try {
-      // Use annotated image if available, otherwise use current version
       const imageToSend = annotatedImage || currentImage;
-      
-      const content = [
+
+      const content: any[] = [
         { type: "text", text: `Edite esta imagem conforme solicitado. Execute TODAS as instruções a seguir: ${prompt}` },
         { type: "image_url", image_url: { url: imageToSend } },
       ];
+
+      // Append attached reference images
+      attachedImages.forEach((img, i) => {
+        content.push({
+          type: "text",
+          text: `Imagem de referência anexada ${i + 1} (${img.name}):`,
+        });
+        content.push({
+          type: "image_url",
+          image_url: { url: img.data },
+        });
+      });
 
       const { data, error } = await supabase.functions.invoke("edit-image", {
         body: { content },
@@ -50,6 +89,7 @@ const Editor = () => {
       addVersion(data.imageUrl);
       setPrompt("");
       setAnnotatedImage(null);
+      setAttachedImages([]);
       toast.success("Imagem atualizada!");
     } catch (e: any) {
       console.error(e);
@@ -72,6 +112,37 @@ const Editor = () => {
     toast.info("Marcações aplicadas! Agora descreva o que deseja alterar nas áreas marcadas.");
   };
 
+  // Drag & drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files.length > 0) {
+      addFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const file = items[i].getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length > 0) {
+      addFiles(imageFiles);
+    }
+  };
+
   if (versions.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -81,7 +152,22 @@ const Editor = () => {
   }
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div
+      ref={dropZoneRef}
+      className="flex flex-1 flex-col"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-primary/10 backdrop-blur-sm">
+          <div className="rounded-xl border-2 border-dashed border-primary bg-card px-8 py-6 text-lg font-medium text-primary shadow-lg">
+            Solte a imagem aqui
+          </div>
+        </div>
+      )}
+
       {/* Annotation overlay */}
       {isAnnotating && currentImage && (
         <DrawingOverlay
@@ -107,6 +193,32 @@ const Editor = () => {
         </div>
       </div>
 
+      {/* Attached images preview */}
+      {attachedImages.length > 0 && (
+        <div className="border-t border-border bg-muted/50 px-6 py-2">
+          <div className="mx-auto flex max-w-2xl gap-2 overflow-x-auto">
+            {attachedImages.map((img, i) => (
+              <div key={i} className="group relative flex-shrink-0">
+                <img
+                  src={img.data}
+                  alt={img.name}
+                  className="h-12 w-12 rounded border border-border object-cover"
+                />
+                <button
+                  onClick={() => removeAttached(i)}
+                  className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+                <span className="absolute -bottom-4 left-0 max-w-[48px] truncate text-[9px] text-muted-foreground">
+                  {img.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Refinement input */}
       <div className="border-t border-border bg-card px-6 py-4">
         <div className="mx-auto flex max-w-2xl items-end gap-2">
@@ -122,11 +234,38 @@ const Editor = () => {
           >
             <PenTool className="h-4 w-4" />
           </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isGenerating}
+            title="Anexar imagem de referência"
+          >
+            <ImagePlus className="h-4 w-4" />
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files) addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
           <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={annotatedImage ? "Descreva o que alterar nas áreas marcadas..." : "Descreva as alterações desejadas..."}
+            onPaste={handlePaste}
+            placeholder={
+              annotatedImage
+                ? "Descreva o que alterar nas áreas marcadas..."
+                : attachedImages.length > 0
+                ? "Descreva o que fazer com as imagens anexadas..."
+                : "Descreva as alterações desejadas..."
+            }
             className="min-h-[44px] max-h-[120px] resize-none text-sm"
             disabled={isGenerating}
           />
