@@ -171,11 +171,11 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
       try {
         const { data, error } = await supabase
           .from("projects")
-          .insert({
+          .insert([{
             user_id: user.id,
             name,
-            data: projectData as unknown as Record<string, unknown>,
-          })
+            data: JSON.parse(JSON.stringify(projectData)),
+          }])
           .select()
           .single();
 
