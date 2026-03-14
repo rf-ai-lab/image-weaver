@@ -187,12 +187,19 @@ const Editor = () => {
         operation: "editor:free_form",
       });
       const outputTrace = createImageTrace(imageUrl);
+      const sameOutput = imageUrl === imageToSend || (outputTrace.hash === inputTrace.hash && outputTrace.length === inputTrace.length);
+
       console.info("[ReferenceEditDebug] editor:freeFormResult", {
         requestId,
         inputImageHash: inputTrace.hash,
         outputImageHash: outputTrace.hash,
         outputImageLength: outputTrace.length,
+        noOpDetected: sameOutput,
       });
+
+      if (sameOutput) {
+        throw new Error("edição não executada: saída idêntica à entrada");
+      }
 
       addVersion(imageUrl, cleanedPrompt, {
         objectLayers: latestObjectLayers,
