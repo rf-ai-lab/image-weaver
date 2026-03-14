@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { generateImageWithFallback } from "@/lib/image-generation";
 
 type LlmProvider = "openai" | "claude" | "gemini";
 
@@ -87,23 +87,25 @@ const Editor = () => {
     setIsGenerating(true);
     try {
       const imageToSend = annotatedImage || currentImage;
-
-      const { data, error } = await supabase.functions.invoke("generate-decoration", {
-        body: { image: imageToSend, prompt: prompt.trim(), llm_provider: llmProvider },
+      const { imageUrl, usedFallback } = await generateImageWithFallback({
+        image: imageToSend,
+        prompt: prompt.trim(),
+        llmProvider,
       });
 
-      if (error) throw error;
-      if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada");
-
-      addVersion(data.imageUrl, prompt);
+      addVersion(imageUrl, prompt);
       setSelectedSetupImageIndex(null);
       setPrompt("");
       setAnnotatedImage(null);
       setAttachedImages([]);
+      if (usedFallback) {
+        toast.info("Sem créditos no provedor atual: usamos fallback automático.");
+      }
       toast.success("Imagem atualizada!");
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Erro ao editar imagem";
       console.error(e);
-      toast.error(e.message || "Erro ao editar imagem");
+      toast.error(message);
     } finally {
       setIsGenerating(false);
     }
