@@ -42,7 +42,14 @@ interface ImageEditorContextType {
   addVersion: (
     imageData: string,
     prompt?: string,
-    metadata?: { objectLayers?: ObjectLayer[]; compositionBaseImage?: string | null }
+    metadata?: {
+      objectLayers?: ObjectLayer[];
+      compositionBaseImage?: string | null;
+      requestId?: string;
+      pipelineBranch?: string;
+      inputImageHash?: string;
+      outputImageHash?: string;
+    }
   ) => void;
   deleteVersion: (index: number) => void;
   setCurrentVersion: (index: number) => void;
