@@ -15,7 +15,7 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const { content } = await req.json();
+    const { content, model } = await req.json();
     if (!content || !Array.isArray(content)) {
       throw new Error("content array is required");
     }
@@ -78,7 +78,8 @@ RESULTADO:
 
     const augmentedContent = [systemPrompt, ...content];
 
-    console.log("Calling AI gateway with gemini-3.1-flash-image-preview...");
+    const selectedModel = model || "google/gemini-3.1-flash-image-preview";
+    console.log(`Calling AI gateway with ${selectedModel}...`);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -87,7 +88,7 @@ RESULTADO:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3.1-flash-image-preview",
+        model: selectedModel,
         messages: [
           {
             role: "user",
