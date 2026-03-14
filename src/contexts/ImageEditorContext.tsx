@@ -70,6 +70,7 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [versions, setVersions] = useState<ImageVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<LLMModel>("gemini-flash");
 
   const saveCurrentToProject = useCallback(() => {
     if (!activeProjectId) return;
