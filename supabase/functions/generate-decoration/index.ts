@@ -130,7 +130,7 @@ async function pollPrediction(id: string, token: string, maxAttempts = 60): Prom
 
 function normalizeReplicateToken(rawToken: string | undefined): string {
   if (!rawToken) return "";
-  return rawToken.trim().replace(/^Bearer\s+/i, "");
+  return rawToken.trim().replace(/^Bearer\s+/i, "").replace(/^['"]|['"]$/g, "");
 }
 
 // ── Main handler ────────────────────────────────────────────────────────────
