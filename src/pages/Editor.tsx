@@ -89,7 +89,7 @@ const Editor = () => {
       const imageToSend = annotatedImage || currentImage;
 
       const { data, error } = await supabase.functions.invoke("generate-decoration", {
-        body: { image: imageToSend, prompt: prompt.trim() },
+        body: { image: imageToSend, prompt: prompt.trim(), llm_provider: llmProvider },
       });
 
       if (error) throw error;
