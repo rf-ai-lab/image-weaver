@@ -21,6 +21,14 @@ export interface Project {
   currentVersionIndex: number;
 }
 
+export type LLMModel = "google/gemini-3.1-flash-image-preview" | "google/gemini-3-pro-image-preview" | "google/gemini-2.5-flash";
+
+export const LLM_OPTIONS: { value: LLMModel; label: string }[] = [
+  { value: "google/gemini-3.1-flash-image-preview", label: "Gemini Flash Image" },
+  { value: "google/gemini-3-pro-image-preview", label: "Gemini Pro Image" },
+  { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+];
+
 interface ImageEditorContextType {
   rows: ImageRow[];
   versions: ImageVersion[];
@@ -28,6 +36,8 @@ interface ImageEditorContextType {
   isGenerating: boolean;
   activeProjectId: string | null;
   projects: Project[];
+  selectedModel: LLMModel;
+  setSelectedModel: (model: LLMModel) => void;
   addRow: () => void;
   removeRow: (id: string) => void;
   updateRow: (id: string, updates: Partial<Omit<ImageRow, "id">>) => void;
