@@ -8,6 +8,7 @@ export interface ReferenceImage {
 export type ComposeImageParams = {
   baseImage: string;
   references: ReferenceImage[];
+  model?: string;
 };
 
 export type ComposeImageResult = {
