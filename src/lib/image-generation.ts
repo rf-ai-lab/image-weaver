@@ -68,8 +68,9 @@ const NO_OP_DIFF_THRESHOLD = 0.0025;
 
 export type ReferenceEditPath =
   | "replaceLayerInComposition"
-  | "refineImageWithReplaceContext"
   | "appendReferenceObjectToComposition"
+  | "transformLayerInComposition"
+  | "refineImageWithReplaceContext"
   | "refineImageFallback";
 
 interface ImageTraceSnapshot {

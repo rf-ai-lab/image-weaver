@@ -147,7 +147,7 @@ export async function detectOpaqueBounds(imageSource: string): Promise<SourceCro
   };
 }
 
-export type ReferenceIntent = "replace" | "add";
+export type ReferenceIntent = "replace" | "add" | "transform";
 
 export interface ParsedReferenceIntent {
   intent: ReferenceIntent;
