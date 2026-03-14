@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { useImageEditor, type TrackedObject } from "@/contexts/ImageEditorContext";
+import { useImageEditor } from "@/contexts/ImageEditorContext";
 import VersionHistory from "@/components/VersionHistory";
 import DrawingOverlay from "@/components/DrawingOverlay";
 import { Button } from "@/components/ui/button";
@@ -8,12 +8,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { refineImage } from "@/lib/image-generation";
-import {
-  applyTrackedObjectTransform,
-  detectInsertedObjectFromDiff,
-  inferObjectLabelFromPrompt,
-  parseObjectTransformCommand,
-} from "@/lib/object-transform";
 
 export type LLMProvider = "gemini" | "openai" | "claude";
 
@@ -49,9 +43,7 @@ const Editor = () => {
     selectedSetupImageIndex !== null ? setupImages[selectedSetupImageIndex]?.imageData ?? null : null;
   const currentImage = selectedSetupImage || versionImage;
 
-  const lastVersion = versions.length > 0 ? versions[versions.length - 1] : null;
-  const lastGeneratedImage = lastVersion?.imageData ?? null;
-  const lastTrackedObjects = lastVersion?.objects ?? [];
+  const lastGeneratedImage = versions.length > 0 ? versions[versions.length - 1].imageData : null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -60,7 +52,6 @@ const Editor = () => {
       toast.error("Selecione um arquivo de imagem.");
       return;
     }
-
     const reader = new FileReader();
     reader.onload = () => {
       setAttachedImage(reader.result as string);
@@ -69,39 +60,16 @@ const Editor = () => {
     e.target.value = "";
   };
 
-  const tryResolveFallbackObject = async (
-    promptText: string,
-    currentSceneImage: string,
-    existingObjects: TrackedObject[]
-  ): Promise<TrackedObject | null> => {
-    if (existingObjects.length > 0) return null;
-
-    const baselineImage =
-      versions.length > 1
-        ? versions[versions.length - 2].imageData
-        : rows.find((row) => row.isPrimary)?.imageData ?? null;
-
-    if (!baselineImage) return null;
-
-    return detectInsertedObjectFromDiff({
-      beforeImage: baselineImage,
-      afterImage: currentSceneImage,
-      label: inferObjectLabelFromPrompt(promptText),
-      versionIndex: versions.length - 1,
-    });
-  };
-
   const handleRefine = async () => {
     if (!prompt.trim() && !attachedImage) return;
 
-    const cleanPrompt = prompt.trim();
     const imageToSend = annotatedImage || lastGeneratedImage || currentImage;
     if (!imageToSend) {
       toast.error("Nenhuma imagem para editar. Gere a composição primeiro na tela de Configuração.");
       return;
     }
 
-    if (cleanPrompt.toLowerCase().includes("volte para a versão anterior") || cleanPrompt.toLowerCase().includes("desfazer")) {
+    if (prompt.toLowerCase().includes("volte para a versão anterior") || prompt.toLowerCase().includes("desfazer")) {
       setSelectedSetupImageIndex(null);
       undoVersion();
       setPrompt("");
@@ -111,73 +79,13 @@ const Editor = () => {
 
     setIsGenerating(true);
     try {
-      const transformCommand = !attachedImage
-        ? parseObjectTransformCommand(cleanPrompt, lastTrackedObjects.map((object) => object.label))
-        : null;
-
-      if (transformCommand) {
-        let objectsState = [...lastTrackedObjects];
-        let targetObject =
-          transformCommand.targetObject === "last_added_object"
-            ? objectsState[objectsState.length - 1]
-            : objectsState.find((object) => object.label.includes(transformCommand.targetLabel ?? ""));
-
-        if (!targetObject) {
-          const fallbackObject = await tryResolveFallbackObject(cleanPrompt, imageToSend, objectsState);
-          if (fallbackObject) {
-            objectsState = [...objectsState, fallbackObject];
-            targetObject = fallbackObject;
-          }
-        }
-
-        if (!targetObject) {
-          throw new Error("Não encontrei o objeto alvo para transformar. Envie uma imagem de referência desse objeto novamente.");
-        }
-
-        const { imageUrl, updatedObject } = await applyTrackedObjectTransform({
-          sceneImage: imageToSend,
-          targetObject,
-          command: transformCommand,
-          nextVersionIndex: versions.length,
-        });
-
-        const updatedObjects = objectsState.map((object) =>
-          object.id === updatedObject.id ? updatedObject : object
-        );
-
-        addVersion(imageUrl, cleanPrompt, { objects: updatedObjects });
-        setSelectedSetupImageIndex(null);
-        setPrompt("");
-        setAnnotatedImage(null);
-        setAttachedImage(null);
-        toast.success("Transformação aplicada no objeto alvo.");
-        return;
-      }
-
       const { imageUrl } = await refineImage(
         imageToSend,
-        cleanPrompt,
+        prompt.trim(),
         attachedImage || undefined,
         selectedLLM
       );
-
-      let nextObjects = [...lastTrackedObjects];
-
-      if (attachedImage) {
-        const inferredLabel = inferObjectLabelFromPrompt(cleanPrompt);
-        const detectedObject = await detectInsertedObjectFromDiff({
-          beforeImage: imageToSend,
-          afterImage: imageUrl,
-          label: inferredLabel,
-          versionIndex: versions.length,
-        });
-
-        if (detectedObject) {
-          nextObjects = [...nextObjects, detectedObject];
-        }
-      }
-
-      addVersion(imageUrl, cleanPrompt, { objects: nextObjects });
+      addVersion(imageUrl, prompt);
       setSelectedSetupImageIndex(null);
       setPrompt("");
       setAnnotatedImage(null);
@@ -251,10 +159,10 @@ const Editor = () => {
         <div className="mx-auto max-w-2xl">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
-              Refinamento — comandos de escala/posição agora usam alvo de objeto explícito quando possível.
+              Refinamento — envie instruções e/ou imagens de referência para ajustar a composição.
             </p>
             <Select value={selectedLLM} onValueChange={(v) => setSelectedLLM(v as LLMProvider)}>
-              <SelectTrigger className="h-8 w-[120px] text-xs">
+              <SelectTrigger className="w-[120px] h-8 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -283,34 +191,13 @@ const Editor = () => {
           )}
 
           <div className="flex items-end gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => {
-                setSelectedSetupImageIndex(null);
-                undoVersion();
-              }}
-              disabled={currentVersionIndex <= 0}
-              title="Desfazer"
-            >
+            <Button variant="outline" size="icon" onClick={() => { setSelectedSetupImageIndex(null); undoVersion(); }} disabled={currentVersionIndex <= 0} title="Desfazer">
               <Undo2 className="h-4 w-4" />
             </Button>
-            <Button
-              variant={annotatedImage ? "default" : "outline"}
-              size="icon"
-              onClick={() => setIsAnnotating(true)}
-              disabled={isGenerating || !currentImage}
-              title="Marcar na imagem"
-            >
+            <Button variant={annotatedImage ? "default" : "outline"} size="icon" onClick={() => setIsAnnotating(true)} disabled={isGenerating || !currentImage} title="Marcar na imagem">
               <PenTool className="h-4 w-4" />
             </Button>
-            <Button
-              variant={attachedImage ? "default" : "outline"}
-              size="icon"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isGenerating}
-              title="Anexar imagem de referência"
-            >
+            <Button variant={attachedImage ? "default" : "outline"} size="icon" onClick={() => fileInputRef.current?.click()} disabled={isGenerating} title="Anexar imagem de referência">
               <ImagePlus className="h-4 w-4" />
             </Button>
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
@@ -318,12 +205,8 @@ const Editor = () => {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={attachedImage
-                ? "Descreva como usar essa imagem na composição..."
-                : annotatedImage
-                  ? "Descreva o que alterar nas áreas marcadas..."
-                  : "Ex: reduza o portal pela metade, suba o arco, mova as flores para a direita..."}
-              className="max-h-[120px] min-h-[44px] resize-none text-sm"
+              placeholder={attachedImage ? "Descreva como usar essa imagem na composição..." : annotatedImage ? "Descreva o que alterar nas áreas marcadas..." : "Ex: mude a cor das flores para rosa, remova o arranjo da esquerda..."}
+              className="min-h-[44px] max-h-[120px] resize-none text-sm"
               disabled={isGenerating}
             />
             <Button onClick={handleRefine} disabled={isGenerating || (!prompt.trim() && !attachedImage)} size="icon">
@@ -336,15 +219,8 @@ const Editor = () => {
       <VersionHistory
         setupImages={setupImages}
         selectedSetupImageIndex={selectedSetupImageIndex}
-        onSelectSetupImage={(index) => {
-          setSelectedSetupImageIndex(index);
-          setAnnotatedImage(null);
-        }}
-        onSelectVersion={(index) => {
-          setSelectedSetupImageIndex(null);
-          setAnnotatedImage(null);
-          setCurrentVersion(index);
-        }}
+        onSelectSetupImage={(index) => { setSelectedSetupImageIndex(index); setAnnotatedImage(null); }}
+        onSelectVersion={(index) => { setSelectedSetupImageIndex(null); setAnnotatedImage(null); setCurrentVersion(index); }}
       />
     </div>
   );

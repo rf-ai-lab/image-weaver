@@ -42,7 +42,7 @@ const Header = () => {
         references,
       });
 
-      addVersion(imageUrl, `Composição: ${references.map((r) => r.instruction).join(" + ")}`, { objects: [] });
+      addVersion(imageUrl, `Composição: ${references.map((r) => r.instruction).join(" + ")}`);
       navigate("/editor");
       toast.success("Composição gerada!");
     } catch (e: unknown) {

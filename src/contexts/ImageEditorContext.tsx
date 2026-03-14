@@ -7,32 +7,10 @@ export interface ImageRow {
   isPrimary: boolean;
 }
 
-export interface ObjectBoundingBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface TrackedObject {
-  id: string;
-  label: string;
-  imageData: string;
-  bbox: ObjectBoundingBox;
-  backgroundImage: string;
-  createdAtVersion: number;
-  updatedAtVersion: number;
-}
-
 export interface ImageVersion {
   label: string;
   imageData: string;
   prompt?: string;
-  objects: TrackedObject[];
-}
-
-export interface AddVersionOptions {
-  objects?: TrackedObject[];
 }
 
 export interface Project {
@@ -54,7 +32,7 @@ interface ImageEditorContextType {
   removeRow: (id: string) => void;
   updateRow: (id: string, updates: Partial<Omit<ImageRow, "id">>) => void;
   setPrimary: (id: string) => void;
-  addVersion: (imageData: string, prompt?: string, options?: AddVersionOptions) => void;
+  addVersion: (imageData: string, prompt?: string) => void;
   deleteVersion: (index: number) => void;
   setCurrentVersion: (index: number) => void;
   undoVersion: () => void;
@@ -66,18 +44,14 @@ interface ImageEditorContextType {
 
 const ImageEditorContext = createContext<ImageEditorContextType | null>(null);
 
+let rowCounter = 1;
+
 const makeFirstRow = (): ImageRow => ({
   id: crypto.randomUUID(),
   imageData: null,
   instructions: "",
   isPrimary: true,
 });
-
-const cloneObjects = (objects: TrackedObject[]): TrackedObject[] =>
-  objects.map((object) => ({
-    ...object,
-    bbox: { ...object.bbox },
-  }));
 
 export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -86,6 +60,17 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [versions, setVersions] = useState<ImageVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
   const [isGenerating, setIsGenerating] = useState(false);
+
+  const saveCurrentToProject = useCallback(() => {
+    if (!activeProjectId) return;
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === activeProjectId
+          ? { ...p, rows, versions, currentVersionIndex }
+          : p
+      )
+    );
+  }, [activeProjectId, rows, versions, currentVersionIndex]);
 
   const createProject = useCallback((name: string) => {
     if (activeProjectId) {
@@ -97,7 +82,6 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         )
       );
     }
-
     const newRow = makeFirstRow();
     const newProject: Project = {
       id: crypto.randomUUID(),
@@ -106,7 +90,6 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
       versions: [],
       currentVersionIndex: -1,
     };
-
     setProjects((prev) => [...prev, newProject]);
     setActiveProjectId(newProject.id);
     setRows([newRow]);
@@ -134,7 +117,6 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         )
       );
     }
-
     setProjects((prev) => {
       const target = prev.find((p) => p.id === id);
       if (target) {
@@ -169,19 +151,9 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setRows((prev) => prev.map((r) => ({ ...r, isPrimary: r.id === id })));
   }, []);
 
-  const addVersion = useCallback((imageData: string, prompt?: string, options?: AddVersionOptions) => {
+  const addVersion = useCallback((imageData: string, prompt?: string) => {
     setVersions((prev) => {
-      const inheritedObjects = options?.objects
-        ? cloneObjects(options.objects)
-        : cloneObjects(prev[prev.length - 1]?.objects ?? []);
-
-      const next = [...prev, {
-        label: `Versão ${prev.length + 1}`,
-        imageData,
-        prompt,
-        objects: inheritedObjects,
-      }];
-
+      const next = [...prev, { label: `Versão ${prev.length + 1}`, imageData, prompt }];
       setCurrentVersionIndex(next.length - 1);
       return next;
     });
@@ -189,17 +161,13 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const deleteVersion = useCallback((index: number) => {
     setVersions((prev) => {
-      const next = prev
-        .filter((_, i) => i !== index)
-        .map((v, i) => ({ ...v, label: `Versão ${i + 1}` }));
-
+      const next = prev.filter((_, i) => i !== index).map((v, i) => ({ ...v, label: `Versão ${i + 1}` }));
       setCurrentVersionIndex((cur) => {
         if (next.length === 0) return -1;
         if (cur === index) return Math.min(index, next.length - 1);
         if (cur > index) return cur - 1;
         return cur;
       });
-
       return next;
     });
   }, []);
