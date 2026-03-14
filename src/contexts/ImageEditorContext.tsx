@@ -28,6 +28,8 @@ interface ImageEditorContextType {
   isGenerating: boolean;
   activeProjectId: string | null;
   projects: Project[];
+  currentSceneDescription: string;
+  editCount: number;
   addRow: () => void;
   removeRow: (id: string) => void;
   updateRow: (id: string, updates: Partial<Omit<ImageRow, "id">>) => void;
@@ -37,6 +39,9 @@ interface ImageEditorContextType {
   setCurrentVersion: (index: number) => void;
   undoVersion: () => void;
   setIsGenerating: (v: boolean) => void;
+  setCurrentSceneDescription: (desc: string) => void;
+  incrementEditCount: () => void;
+  resetEditCount: () => void;
   createProject: (name: string) => void;
   deleteProject: (id: string) => void;
   loadProject: (id: string) => void;
