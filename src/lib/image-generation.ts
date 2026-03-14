@@ -673,10 +673,14 @@ export async function refineImage(
   currentImage: string,
   prompt: string,
   referenceImage?: string,
-  llmProvider?: LLMProvider
+  llmProvider?: LLMProvider,
+  trace?: EditInvokeTraceOptions
 ): Promise<{ imageUrl: string }> {
   if (!currentImage) throw new Error("Imagem atual é obrigatória.");
   if (!prompt && !referenceImage) throw new Error("Prompt ou imagem de referência é obrigatório.");
+
+  const requestId = trace?.requestId || createImageEditRequestId();
+  const operation = trace?.operation || "refine:default";
 
   const content: any[] = [{ type: "image_url", image_url: { url: currentImage } }];
 
@@ -695,8 +699,31 @@ export async function refineImage(
     content.push({ type: "text", text: prompt });
   }
 
+  const currentTrace = createImageTraceSnapshot(currentImage);
+  const referenceTrace = createImageTraceSnapshot(referenceImage);
+
+  logDebug("refineImage:request", {
+    requestId,
+    operation,
+    llmProvider: llmProvider || "gemini",
+    currentImageHash: currentTrace.hash,
+    currentImageLength: currentTrace.length,
+    currentImagePreview: currentTrace.preview,
+    referenceImageHash: referenceTrace.hash,
+    referenceImageLength: referenceTrace.length,
+    referenceImagePreview: referenceTrace.preview,
+    textBlocks: content.filter((item) => item.type === "text").map((item) => item.text),
+  });
+
   const { data, error } = await supabase.functions.invoke("edit-image", {
-    body: { content, llmProvider: llmProvider || "gemini" },
+    body: {
+      content,
+      llmProvider: llmProvider || "gemini",
+      requestId,
+      operation,
+      inputImageHash: currentTrace.hash,
+      referenceImageHash: referenceTrace.hash,
+    },
   });
 
   if (error) {
@@ -705,5 +732,16 @@ export async function refineImage(
   }
 
   if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada.");
+
+  const outputTrace = createImageTraceSnapshot(data.imageUrl);
+  logDebug("refineImage:response", {
+    requestId,
+    operation,
+    outputImageHash: outputTrace.hash,
+    outputImageLength: outputTrace.length,
+    outputImagePreview: outputTrace.preview,
+    outputImageId: outputTrace.identifier,
+  });
+
   return { imageUrl: data.imageUrl };
 }
