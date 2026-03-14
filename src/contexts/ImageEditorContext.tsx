@@ -121,7 +121,7 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         const { error } = await supabase
           .from("projects")
           .update({
-            data: data as unknown as Record<string, unknown>,
+            data: JSON.parse(JSON.stringify(data)),
             updated_at: new Date().toISOString(),
           })
           .eq("id", projectId)
