@@ -49,36 +49,46 @@ PRESERVAÇÃO DE ENQUADRAMENTO, DISTÂNCIA E LENTE (REGRA CRÍTICA):
 - É PROIBIDO aplicar zoom in, zoom out, crop, reframe, pan, tilt, mudança de lente, mudança de distância focal percebida ou aproximação da câmera.
 - A área visível final deve ser a MESMA da foto inicial: sem perder céu, chão ou laterais.
 - A proporção final (aspect ratio) e o campo de visão macro devem permanecer IDÊNTICOS ao original.
-- Se referências tiverem resolução/proporção diferentes, adapte APENAS os objetos extraídos; NUNCA adapte o enquadramento da principal.
 
 PRESERVAÇÃO DE DIMENSÕES E PROPORÇÕES DOS ELEMENTOS (REGRA CRÍTICA):
 - CADA elemento da imagem possui dimensões específicas. Essas dimensões são IMUTÁVEIS, exceto se o usuário pedir redimensionamento explícito.
-- Se o usuário pedir para alterar COR, TEXTURA ou MATERIAL: mude APENAS a aparência visual.
 - Portais, arcos, estruturas, móveis e objetos decorativos devem manter dimensões exatas.
-- Arranjos de flores, vasos, bancos e demais objetos: se não foi pedido para mover/redimensionar, mantenha no MESMO local e com o MESMO tamanho.
+
+REGRA ANTI-DUPLICAÇÃO (CRÍTICA):
+- Quando o usuário pedir para TROCAR, SUBSTITUIR ou usar uma referência "no lugar de" um elemento existente:
+  1. IDENTIFIQUE o elemento alvo existente na cena (arco, portal, altar, arranjo, etc.).
+  2. REMOVA completamente o elemento antigo.
+  3. Coloque o NOVO elemento da referência NA MESMA POSIÇÃO e com PROPORÇÕES SIMILARES ao antigo.
+  4. NUNCA adicione um segundo exemplar do mesmo tipo de objeto.
+  5. NUNCA posicione o novo objeto no primeiro plano / foreground da cena.
+  6. Se a cena tem 1 arco e o usuário pede para trocar, o resultado deve ter EXATAMENTE 1 arco.
+
+REGRA DE POSICIONAMENTO:
+- Objetos substituídos devem ocupar a MESMA região espacial do objeto original.
+- Respeitar profundidade: objeto no fundo continua no fundo.
+- Não trazer objetos para frente da câmera.
+- Manter coerência de escala com os outros elementos da cena.
 
 LÓGICA FIXA DE PROCESSAMENTO:
 - Execute TODAS as instruções de texto do usuário.
 - A FOTO PRINCIPAL define exclusivamente a estrutura macro (ângulo/zoom/enquadramento/câmera).
-- A IMAGEM DE TRABALHO define exclusivamente o estado atual dos elementos (o que existe e o que foi removido).
-- Para cada imagem de referência enviada após a principal: (1) identificar objetos citados, (2) extrair apenas esses objetos, (3) inserir na FOTO PRINCIPAL.
-- Ao "trocar/substituir", coloque no MESMO LOCAL e com MESMO TAMANHO do elemento anterior, salvo instrução contrária.
+- A IMAGEM DE TRABALHO define exclusivamente o estado atual dos elementos.
+- Ao "trocar/substituir", coloque no MESMO LOCAL e com MESMO TAMANHO do elemento anterior.
 - Ao "adicionar", respeite perspectiva, escala e iluminação da foto principal.
-- Ao alterar apenas cor/aparência, NÃO altere tamanho, forma, posição, enquadramento ou distância de câmera.
 
 REGRA CRÍTICA DE CONTINUIDADE (NÃO REINTRODUÇÃO):
-- NUNCA reintroduza, recrie ou faça reaparecer itens do projeto inicial que não estejam visíveis na IMAGEM DE TRABALHO atual.
-- Se um item não está na IMAGEM DE TRABALHO, trate como removido intencionalmente e mantenha AUSENTE.
-- Só traga um item removido de volta se o usuário pedir de forma EXPLÍCITA (ex.: "recolocar", "trazer de volta", "reintroduzir").
+- NUNCA reintroduza itens do projeto inicial que não estejam visíveis na IMAGEM DE TRABALHO atual.
+- Se um item não está na IMAGEM DE TRABALHO, trate como removido e mantenha AUSENTE.
 
 MARCAÇÕES VISUAIS:
 - Traços, círculos ou setas em VERMELHO são guias de localização.
 - REMOVA todas as marcações no resultado final.
 
-CHECKLIST FINAL OBRIGATÓRIO (ANTES DE ENTREGAR):
-- O enquadramento final é idêntico ao original, sem cortes?
-- A distância/ângulo da câmera permanecem iguais?
-- Algum elemento mudou de tamanho sem instrução explícita?
+CHECKLIST FINAL OBRIGATÓRIO:
+- O enquadramento final é idêntico ao original?
+- Existe duplicação de algum objeto (dois arcos, dois altares)?
+- Algum objeto novo apareceu no foreground sem instrução?
+- O restante da cena (bancos, vegetação, horizonte, gramado) permanece intacto?
 
 RESULTADO:
 - A imagem final deve parecer foto real, coerente e sem artefatos visíveis.

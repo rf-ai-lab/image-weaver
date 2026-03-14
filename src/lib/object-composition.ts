@@ -147,6 +147,67 @@ export async function detectOpaqueBounds(imageSource: string): Promise<SourceCro
   };
 }
 
+export type ReferenceIntent = "replace" | "add";
+
+export interface ParsedReferenceIntent {
+  intent: ReferenceIntent;
+  targetLabel?: string;
+  matchedLayerIndex: number;
+}
+
+const REPLACE_KEYWORDS = [
+  "troc", "substitu", "replace", "swap", "no lugar",
+  "em vez", "ao inves", "ao invés",
+  "usar esse", "usar este", "usar essa", "usar esta",
+  "usar como", "colocar esse", "colocar este",
+];
+
+export function parseReferenceIntent(
+  instruction: string,
+  existingLayers: ObjectLayer[]
+): ParsedReferenceIntent {
+  const normalized = normalizeText(instruction);
+
+  const hasReplaceKeyword = REPLACE_KEYWORDS.some((kw) => normalized.includes(kw));
+
+  const inferredLabel = inferObjectLabel(instruction, 0);
+
+  const matchedIndex = [...existingLayers]
+    .map((layer, index) => ({ layer, index }))
+    .reverse()
+    .find(({ layer }) => {
+      const layerLabel = normalizeText(layer.label);
+      return layerLabel === normalizeText(inferredLabel) ||
+        layerLabel.includes(normalizeText(inferredLabel)) ||
+        normalizeText(inferredLabel).includes(layerLabel);
+    })?.index ?? -1;
+
+  if (hasReplaceKeyword) {
+    return {
+      intent: "replace",
+      targetLabel: inferredLabel !== `objeto_0` ? inferredLabel : undefined,
+      matchedLayerIndex: matchedIndex,
+    };
+  }
+
+  if (matchedIndex >= 0) {
+    const hasAddKeyword = /(adicion|acrescen|coloque mais|insira mais|novo|nova|mais um|mais uma)/.test(normalized);
+    if (!hasAddKeyword) {
+      return {
+        intent: "replace",
+        targetLabel: inferredLabel,
+        matchedLayerIndex: matchedIndex,
+      };
+    }
+  }
+
+  return {
+    intent: "add",
+    targetLabel: inferredLabel !== `objeto_0` ? inferredLabel : undefined,
+    matchedLayerIndex: -1,
+  };
+}
+
 export function inferObjectLabel(instruction: string, fallbackIndex: number): string {
   const normalized = normalizeText(instruction);
 
