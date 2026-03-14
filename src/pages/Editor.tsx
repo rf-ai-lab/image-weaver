@@ -66,12 +66,6 @@ const Editor = () => {
       return;
     }
 
-    const primaryImage = rows.find((r) => r.isPrimary)?.imageData;
-    if (!primaryImage) {
-      toast.error("Defina uma Foto Principal no setup para manter a estrutura.");
-      return;
-    }
-
     if (prompt.toLowerCase().includes("volte para a versão anterior") || prompt.toLowerCase().includes("desfazer")) {
       setSelectedSetupImageIndex(null);
       undoVersion();
