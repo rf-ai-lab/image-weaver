@@ -590,6 +590,11 @@ export async function handleReferenceImageEdit({
   };
 }
 
+type EditInvokeTraceOptions = {
+  requestId: string;
+  operation: string;
+};
+
 /**
  * AI refinement with explicit replace-mode system instructions.
  */
@@ -597,8 +602,9 @@ async function refineImageWithReplaceContext(
   currentImage: string,
   referenceImage: string,
   instruction: string,
-  llmProvider?: LLMProvider,
-  targetLabel?: string
+  llmProvider: LLMProvider | undefined,
+  targetLabel: string | undefined,
+  requestId: string
 ): Promise<{ imageUrl: string }> {
   const replaceSystemPrompt = `MODO DE SUBSTITUIÇÃO ESTRITA ATIVADO.
 
@@ -625,6 +631,8 @@ REGRAS:
   ];
 
   logDebug("refineImageWithReplaceContext:request", {
+    requestId,
+    operation: "replace:retry_context",
     llmProvider: llmProvider || "gemini",
     targetLabel,
     currentImageId: toImageDebugId(currentImage),
@@ -633,7 +641,14 @@ REGRAS:
   });
 
   const { data, error } = await supabase.functions.invoke("edit-image", {
-    body: { content, llmProvider: llmProvider || "gemini" },
+    body: {
+      content,
+      llmProvider: llmProvider || "gemini",
+      requestId,
+      operation: "replace:retry_context",
+      inputImageHash: createImageTraceSnapshot(currentImage).hash,
+      referenceImageHash: createImageTraceSnapshot(referenceImage).hash,
+    },
   });
 
   if (error) {
@@ -644,6 +659,7 @@ REGRAS:
   if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada.");
 
   logDebug("refineImageWithReplaceContext:response", {
+    requestId,
     outputImageId: toImageDebugId(data.imageUrl),
   });
 
