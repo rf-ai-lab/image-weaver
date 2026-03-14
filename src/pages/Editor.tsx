@@ -22,6 +22,8 @@ const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
   { value: "claude", label: "Claude" },
 ];
 
+const FORCE_REPLACE_MODE = true;
+
 const Editor = () => {
   const {
     rows,
@@ -100,7 +102,10 @@ const Editor = () => {
           instruction,
           currentImage: imageToSend,
           llmProvider: selectedLLM,
+          forceReplaceMode: FORCE_REPLACE_MODE,
         });
+
+        console.info("[ReferenceEditDebug] Editor result", result.debug);
 
         addVersion(result.imageUrl, instruction, {
           objectLayers: result.layers,

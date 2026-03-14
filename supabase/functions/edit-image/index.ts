@@ -13,6 +13,33 @@ const LLM_MODELS: Record<string, string> = {
   claude: "google/gemini-2.5-pro", // Claude not available on gateway, fallback to best alternative
 };
 
+function summarizeContent(content: any[]): unknown[] {
+  return content.map((item, index) => {
+    if (item?.type === "text") {
+      const text = String(item.text || "").replace(/\s+/g, " ").trim();
+      return {
+        index,
+        type: "text",
+        length: text.length,
+        preview: text.slice(0, 220),
+      };
+    }
+
+    if (item?.type === "image_url") {
+      const url = item?.image_url?.url || "";
+      return {
+        index,
+        type: "image_url",
+        isDataUrl: typeof url === "string" ? url.startsWith("data:") : false,
+        length: typeof url === "string" ? url.length : 0,
+        preview: typeof url === "string" ? url.slice(0, 140) : "",
+      };
+    }
+
+    return { index, type: item?.type || "unknown" };
+  });
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -29,6 +56,12 @@ serve(async (req) => {
 
     const model = LLM_MODELS[llmProvider || "gemini"] || LLM_MODELS.gemini;
 
+    console.log("[ReferenceEditDebug][edit-image] request", {
+      llmProvider: llmProvider || "gemini",
+      model,
+      contentSummary: summarizeContent(content),
+    });
+
     const systemPrompt = {
       type: "text",
       text: `VOCÊ É UM EDITOR DE IMAGENS PROFISSIONAL. SIGA ESTAS REGRAS COM RIGOR ABSOLUTO:
@@ -43,6 +76,10 @@ PRESERVAÇÃO DA IMAGEM PRINCIPAL:
 - NUNCA corte, recorte, redimensione o canvas ou altere a composição da imagem principal.
 - O cenário, fundo, iluminação e temperatura de cor devem permanecer IDÊNTICOS ao original.
 - Todos os elementos NÃO mencionados pelo usuário devem permanecer EXATAMENTE como estão.
+
+PRIORIDADE DE CONFLITO (CRÍTICA):
+- Se houver conflito entre "preservar a cena" e "substituir o objeto alvo", a SUBSTITUIÇÃO DO ALVO tem prioridade absoluta.
+- Ao receber instrução de troca/substituição, é proibido retornar imagem praticamente igual sem alteração perceptível no alvo.
 
 PRESERVAÇÃO DE ENQUADRAMENTO, DISTÂNCIA E LENTE (REGRA CRÍTICA):
 - Distância da câmera ao cenário é IMUTÁVEL, salvo pedido explícito do usuário.
@@ -151,6 +188,11 @@ RESULTADO:
       console.error("No image in response:", JSON.stringify(data).substring(0, 500));
       throw new Error("Nenhuma imagem foi gerada pela IA");
     }
+
+    console.log("[ReferenceEditDebug][edit-image] response", {
+      imageUrlPreview: typeof imageUrl === "string" ? imageUrl.slice(0, 180) : "",
+      hasTextResponse: Boolean(textResponse),
+    });
 
     return new Response(JSON.stringify({ imageUrl, text: textResponse }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
