@@ -1,11 +1,10 @@
-import { useState } from "react";
-import { NavLink } from "@/components/NavLink";
-import { Button } from "@/components/ui/button";
 import { useImageEditor } from "@/contexts/ImageEditorContext";
-import { generateImage } from "@/lib/image-generation";
+import { composeImage, type ReferenceImage } from "@/lib/image-generation";
 import { useNavigate, useLocation } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { NavLink } from "@/components/NavLink";
 
 const Header = () => {
   const {
@@ -18,29 +17,36 @@ const Header = () => {
   const location = useLocation();
   const isSetup = location.pathname === "/setup";
 
-  const handleGenerate = async () => {
+  const handleCompose = async () => {
     const primary = rows.find((r) => r.isPrimary);
     if (!primary?.imageData) {
       toast.error("Adicione uma imagem na foto principal.");
       return;
     }
 
+    const refs = rows.filter((r) => !r.isPrimary && r.imageData && r.instructions.trim());
+    if (refs.length === 0) {
+      toast.error("Adicione pelo menos uma imagem de referência com instrução.");
+      return;
+    }
+
+    const references: ReferenceImage[] = refs.map((r) => ({
+      image: r.imageData!,
+      instruction: r.instructions.trim(),
+    }));
+
     setIsGenerating(true);
     try {
-      const initialPrompt = primary.instructions || "Preserve the original decoration of this wedding venue";
-      const { imageUrl, usedFallback } = await generateImage({
-        image: primary.imageData,
-        prompt: initialPrompt,
+      const { imageUrl } = await composeImage({
+        baseImage: primary.imageData,
+        references,
       });
 
-      addVersion(imageUrl, initialPrompt);
+      addVersion(imageUrl, `Composição: ${references.map((r) => r.instruction).join(" + ")}`);
       navigate("/editor");
-      if (usedFallback) {
-        toast.info("Sem créditos no provedor atual: usamos fallback automático.");
-      }
-      toast.success("Primeira versão gerada!");
+      toast.success("Composição gerada!");
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Erro ao gerar imagem";
+      const message = e instanceof Error ? e.message : "Erro ao compor imagem";
       console.error(e);
       toast.error(message);
     } finally {
@@ -64,11 +70,11 @@ const Header = () => {
 
       {isSetup && (
         <div className="flex items-center gap-2">
-          <Button onClick={handleGenerate} disabled={isGenerating} size="sm">
+          <Button onClick={handleCompose} disabled={isGenerating} size="sm">
             {isGenerating ? (
-              <><Loader2 className="animate-spin" /> Gerando...</>
+              <><Loader2 className="animate-spin" /> Compondo...</>
             ) : (
-              <><Sparkles /> Gerar Primeira Versão</>
+              <><Sparkles /> Compor Decoração</>
             )}
           </Button>
         </div>
