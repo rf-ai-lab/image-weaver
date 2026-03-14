@@ -2,11 +2,16 @@ import { useImageEditor } from "@/contexts/ImageEditorContext";
 import { composeImage, type ReferenceImage } from "@/lib/image-generation";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Loader2, Sparkles } from "lucide-react";
+import { Loader2, Sparkles, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { NavLink } from "@/components/NavLink";
 
-const Header = () => {
+interface HeaderProps {
+  onSignOut?: () => void;
+  userEmail?: string;
+}
+
+const Header = ({ onSignOut, userEmail }: HeaderProps) => {
   const {
     rows,
     isGenerating,
@@ -68,8 +73,8 @@ const Header = () => {
         </NavLink>
       </nav>
 
-      {isSetup && (
-        <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
+        {isSetup && (
           <Button onClick={handleCompose} disabled={isGenerating} size="sm">
             {isGenerating ? (
               <><Loader2 className="animate-spin" /> Compondo...</>
@@ -77,8 +82,17 @@ const Header = () => {
               <><Sparkles /> Compor Decoração</>
             )}
           </Button>
-        </div>
-      )}
+        )}
+
+        {userEmail && (
+          <span className="text-xs text-muted-foreground hidden sm:inline">{userEmail}</span>
+        )}
+        {onSignOut && (
+          <Button variant="ghost" size="icon" onClick={onSignOut} title="Sair">
+            <LogOut className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
     </header>
   );
 };

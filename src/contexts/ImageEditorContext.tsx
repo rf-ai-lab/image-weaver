@@ -1,4 +1,7 @@
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 export interface ImageRow {
   id: string;
@@ -28,6 +31,7 @@ interface ImageEditorContextType {
   isGenerating: boolean;
   activeProjectId: string | null;
   projects: Project[];
+  loadingProjects: boolean;
   addRow: () => void;
   removeRow: (id: string) => void;
   updateRow: (id: string, updates: Partial<Omit<ImageRow, "id">>) => void;
@@ -40,11 +44,10 @@ interface ImageEditorContextType {
   createProject: (name: string) => void;
   deleteProject: (id: string) => void;
   loadProject: (id: string) => void;
+  refreshProjects: () => void;
 }
 
 const ImageEditorContext = createContext<ImageEditorContextType | null>(null);
-
-let rowCounter = 1;
 
 const makeFirstRow = (): ImageRow => ({
   id: crypto.randomUUID(),
@@ -54,81 +57,200 @@ const makeFirstRow = (): ImageRow => ({
 });
 
 export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [rows, setRows] = useState<ImageRow[]>([makeFirstRow()]);
   const [versions, setVersions] = useState<ImageVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const saveCurrentToProject = useCallback(() => {
-    if (!activeProjectId) return;
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === activeProjectId
-          ? { ...p, rows, versions, currentVersionIndex }
-          : p
-      )
-    );
-  }, [activeProjectId, rows, versions, currentVersionIndex]);
+  // Auto-save debounce
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isSaving = useRef(false);
 
-  const createProject = useCallback((name: string) => {
-    if (activeProjectId) {
-      setProjects((prev) =>
-        prev.map((p) =>
-          p.id === activeProjectId
-            ? { ...p, rows, versions, currentVersionIndex }
-            : p
-        )
-      );
+  // ─── Load projects from DB ───
+  const fetchProjects = useCallback(async () => {
+    if (!user) return;
+    setLoadingProjects(true);
+    try {
+      const { data, error } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false });
+
+      if (error) throw error;
+
+      const mapped: Project[] = (data ?? []).map((row) => {
+        const d = row.data as Record<string, unknown> | null;
+        return {
+          id: row.id,
+          name: row.name,
+          rows: (d?.rows as ImageRow[]) ?? [makeFirstRow()],
+          versions: (d?.versions as ImageVersion[]) ?? [],
+          currentVersionIndex: (d?.currentVersionIndex as number) ?? -1,
+        };
+      });
+      setProjects(mapped);
+    } catch (err) {
+      console.error("Error fetching projects:", err);
+    } finally {
+      setLoadingProjects(false);
     }
-    const newRow = makeFirstRow();
-    const newProject: Project = {
-      id: crypto.randomUUID(),
-      name,
-      rows: [newRow],
-      versions: [],
-      currentVersionIndex: -1,
-    };
-    setProjects((prev) => [...prev, newProject]);
-    setActiveProjectId(newProject.id);
-    setRows([newRow]);
-    setVersions([]);
-    setCurrentVersionIndex(-1);
-  }, [activeProjectId, rows, versions, currentVersionIndex]);
+  }, [user]);
 
-  const deleteProject = useCallback((id: string) => {
-    setProjects((prev) => prev.filter((p) => p.id !== id));
-    if (activeProjectId === id) {
+  useEffect(() => {
+    if (user) fetchProjects();
+    else {
+      setProjects([]);
       setActiveProjectId(null);
       setRows([makeFirstRow()]);
       setVersions([]);
       setCurrentVersionIndex(-1);
     }
-  }, [activeProjectId]);
+  }, [user, fetchProjects]);
 
-  const loadProject = useCallback((id: string) => {
-    if (activeProjectId) {
-      setProjects((prev) =>
-        prev.map((p) =>
-          p.id === activeProjectId
-            ? { ...p, rows, versions, currentVersionIndex }
-            : p
-        )
-      );
-    }
-    setProjects((prev) => {
-      const target = prev.find((p) => p.id === id);
+  // ─── Auto-save to DB ───
+  const saveToDb = useCallback(
+    async (projectId: string, data: { rows: ImageRow[]; versions: ImageVersion[]; currentVersionIndex: number }) => {
+      if (!user || isSaving.current) return;
+      isSaving.current = true;
+      try {
+        const { error } = await supabase
+          .from("projects")
+          .update({
+            data: data as unknown as Record<string, unknown>,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", projectId)
+          .eq("user_id", user.id);
+        if (error) console.error("Auto-save error:", error);
+      } finally {
+        isSaving.current = false;
+      }
+    },
+    [user]
+  );
+
+  const scheduleSave = useCallback(() => {
+    if (!activeProjectId) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const pid = activeProjectId;
+    saveTimerRef.current = setTimeout(() => {
+      // Grab latest state via setter callbacks
+      setRows((r) => {
+        setVersions((v) => {
+          setCurrentVersionIndex((ci) => {
+            saveToDb(pid, { rows: r, versions: v, currentVersionIndex: ci });
+            return ci;
+          });
+          return v;
+        });
+        return r;
+      });
+    }, 2000);
+  }, [activeProjectId, saveToDb]);
+
+  // Trigger auto-save on state changes
+  useEffect(() => {
+    if (activeProjectId) scheduleSave();
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [rows, versions, currentVersionIndex, activeProjectId, scheduleSave]);
+
+  // ─── CRUD ───
+  const createProject = useCallback(
+    async (name: string) => {
+      if (!user) return;
+      const newRow = makeFirstRow();
+      const projectData = { rows: [newRow], versions: [], currentVersionIndex: -1 };
+
+      try {
+        const { data, error } = await supabase
+          .from("projects")
+          .insert({
+            user_id: user.id,
+            name,
+            data: projectData as unknown as Record<string, unknown>,
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        const newProject: Project = {
+          id: data.id,
+          name: data.name,
+          rows: [newRow],
+          versions: [],
+          currentVersionIndex: -1,
+        };
+
+        setProjects((prev) => [newProject, ...prev]);
+        setActiveProjectId(newProject.id);
+        setRows([newRow]);
+        setVersions([]);
+        setCurrentVersionIndex(-1);
+      } catch (err) {
+        console.error("Error creating project:", err);
+        toast.error("Erro ao criar projeto.");
+      }
+    },
+    [user]
+  );
+
+  const deleteProject = useCallback(
+    async (id: string) => {
+      if (!user) return;
+      try {
+        const { error } = await supabase
+          .from("projects")
+          .delete()
+          .eq("id", id)
+          .eq("user_id", user.id);
+        if (error) throw error;
+
+        setProjects((prev) => prev.filter((p) => p.id !== id));
+        if (activeProjectId === id) {
+          setActiveProjectId(null);
+          setRows([makeFirstRow()]);
+          setVersions([]);
+          setCurrentVersionIndex(-1);
+        }
+      } catch (err) {
+        console.error("Error deleting project:", err);
+        toast.error("Erro ao excluir projeto.");
+      }
+    },
+    [user, activeProjectId]
+  );
+
+  const loadProject = useCallback(
+    (id: string) => {
+      // Save current first (immediate)
+      if (activeProjectId && user) {
+        saveToDb(activeProjectId, { rows, versions, currentVersionIndex });
+      }
+
+      const target = projects.find((p) => p.id === id);
       if (target) {
         setRows(target.rows);
         setVersions(target.versions);
         setCurrentVersionIndex(target.currentVersionIndex);
         setActiveProjectId(id);
       }
-      return prev;
-    });
-  }, [activeProjectId, rows, versions, currentVersionIndex]);
+    },
+    [activeProjectId, user, rows, versions, currentVersionIndex, projects, saveToDb]
+  );
 
+  const refreshProjects = useCallback(() => {
+    fetchProjects();
+  }, [fetchProjects]);
+
+  // ─── Row operations ───
   const addRow = useCallback(() => {
     setRows((prev) => [...prev, { id: crypto.randomUUID(), imageData: null, instructions: "", isPrimary: false }]);
   }, []);
@@ -151,6 +273,7 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setRows((prev) => prev.map((r) => ({ ...r, isPrimary: r.id === id })));
   }, []);
 
+  // ─── Version operations ───
   const addVersion = useCallback((imageData: string, prompt?: string) => {
     setVersions((prev) => {
       const next = [...prev, { label: `Versão ${prev.length + 1}`, imageData, prompt }];
@@ -189,6 +312,7 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         isGenerating,
         activeProjectId,
         projects,
+        loadingProjects,
         addRow,
         removeRow,
         updateRow,
@@ -201,6 +325,7 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         createProject,
         deleteProject,
         loadProject,
+        refreshProjects,
       }}
     >
       {children}
