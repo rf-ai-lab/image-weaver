@@ -66,12 +66,6 @@ const Editor = () => {
       return;
     }
 
-    const primaryImage = rows.find((r) => r.isPrimary)?.imageData;
-    if (!primaryImage) {
-      toast.error("Defina uma Foto Principal no setup para manter a estrutura.");
-      return;
-    }
-
     if (prompt.toLowerCase().includes("volte para a versão anterior") || prompt.toLowerCase().includes("desfazer")) {
       setSelectedSetupImageIndex(null);
       undoVersion();
@@ -84,41 +78,8 @@ const Editor = () => {
     try {
       const imageToSend = annotatedImage || currentImage;
 
-      const content: any[] = [
-        {
-          type: "text",
-          text:
-            "LÓGICA FIXA: preserve SEMPRE macro/enquadramento/ângulo/zoom/câmera da Foto Principal e NUNCA reintroduza elementos ausentes da imagem de trabalho atual, exceto se o usuário pedir explicitamente.",
-        },
-        {
-          type: "text",
-          text: "Foto Principal (estrutura obrigatória):",
-        },
-        { type: "image_url", image_url: { url: primaryImage } },
-        {
-          type: "text",
-          text: "Imagem de trabalho (estado atual para edição):",
-        },
-        { type: "image_url", image_url: { url: imageToSend } },
-        {
-          type: "text",
-          text: `Instrução do usuário (execute todas): ${prompt}`,
-        },
-      ];
-
-      attachedImages.forEach((img, i) => {
-        content.push({
-          type: "text",
-          text: `Imagem de referência anexada ${i + 1} (${img.name}): identifique apenas os objetos citados, extraia e aplique na Foto Principal sem alterar enquadramento/zoom.`,
-        });
-        content.push({
-          type: "image_url",
-          image_url: { url: img.data },
-        });
-      });
-
-      const { data, error } = await supabase.functions.invoke("edit-image", {
-        body: { content },
+      const { data, error } = await supabase.functions.invoke("generate-decoration", {
+        body: { image: imageToSend, prompt: prompt.trim() },
       });
 
       if (error) throw error;

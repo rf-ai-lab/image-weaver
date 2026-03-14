@@ -21,38 +21,10 @@ const Header = () => {
 
     setIsGenerating(true);
     try {
-      // Build deterministic payload: primary image first, references after
-      const content: any[] = [];
-      const references = rows.filter((r) => !r.isPrimary && r.imageData);
-
-      content.push({
-        type: "text",
-        text: "LÓGICA FIXA: a PRIMEIRA image_url é sempre a Foto Principal (estrutura macro fixa: ângulo, zoom, enquadramento e distância). Referências servem apenas para extrair objetos citados e aplicar na principal.",
-      });
-
-      content.push({
-        type: "text",
-        text: `Foto Principal (base estrutural obrigatória). ${primary.instructions ? `Instruções adicionais: ${primary.instructions}` : ""}`,
-      });
-
-      content.push({
-        type: "image_url",
-        image_url: { url: primary.imageData },
-      });
-
-      references.forEach((row, i) => {
-        content.push({
-          type: "text",
-          text: `Imagem de referência ${i + 1}: ${row.instructions || "identifique objetos relevantes"}. Extraia apenas o que foi solicitado e aplique na foto principal sem alterar enquadramento/zoom.`,
-        });
-        content.push({
-          type: "image_url",
-          image_url: { url: row.imageData! },
-        });
-      });
-
-      const { data, error } = await supabase.functions.invoke("edit-image", {
-        body: { content },
+      const initialPrompt = primary.instructions || "Preserve the original decoration of this wedding venue";
+      
+      const { data, error } = await supabase.functions.invoke("generate-decoration", {
+        body: { image: primary.imageData, prompt: initialPrompt },
       });
 
       if (error) throw error;
