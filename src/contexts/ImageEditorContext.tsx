@@ -71,6 +71,11 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [versions, setVersions] = useState<ImageVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [currentSceneDescription, setCurrentSceneDescription] = useState("");
+  const [editCount, setEditCount] = useState(0);
+
+  const incrementEditCount = useCallback(() => setEditCount((c) => c + 1), []);
+  const resetEditCount = useCallback(() => setEditCount(0), []);
 
   const saveCurrentToProject = useCallback(() => {
     if (!activeProjectId) return;
