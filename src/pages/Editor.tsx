@@ -8,11 +8,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { handleReferenceImageEdit, refineImage } from "@/lib/image-generation";
-import {
-  applyObjectTransformCommand,
-  composeImageFromLayers,
-  parseObjectTransformPrompt,
-} from "@/lib/object-composition";
 
 export type LLMProvider = "gemini" | "openai" | "claude";
 
