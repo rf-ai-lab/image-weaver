@@ -8,6 +8,7 @@ export interface ReferenceImage {
 export type ComposeImageParams = {
   baseImage: string;
   references: ReferenceImage[];
+  model?: string;
 };
 
 export type ComposeImageResult = {
@@ -71,8 +72,7 @@ async function segmentObject(image: string): Promise<string> {
  * Step 2: Compose segmented objects onto the base image using Gemini vision.
  * Sends the base image + all segmented reference PNGs + instructions to the AI.
  */
-async function composeWithAI(baseImage: string, segmentedRefs: { segmentedUrl: string; instruction: string }[]): Promise<string> {
-  // Build content array: base image first, then each segmented reference with its instruction
+async function composeWithAI(baseImage: string, segmentedRefs: { segmentedUrl: string; instruction: string }[], model?: string): Promise<string> {
   const content: any[] = [
     { type: "text", text: "Esta é a IMAGEM BASE (cena principal). Preserve-a integralmente." },
     { type: "image_url", image_url: { url: baseImage } },
@@ -96,7 +96,7 @@ async function composeWithAI(baseImage: string, segmentedRefs: { segmentedUrl: s
   });
 
   const { data, error } = await supabase.functions.invoke("edit-image", {
-    body: { content },
+    body: { content, model },
   });
 
   if (error) {
@@ -114,11 +114,10 @@ async function composeWithAI(baseImage: string, segmentedRefs: { segmentedUrl: s
  * 2. Send base image + all segmented objects + instructions to Gemini for composition
  * 3. Return the final composed image
  */
-export async function composeImage({ baseImage, references }: ComposeImageParams): Promise<ComposeImageResult> {
+export async function composeImage({ baseImage, references, model }: ComposeImageParams): Promise<ComposeImageResult> {
   if (!baseImage) throw new Error("Imagem base é obrigatória.");
   if (!references || references.length === 0) throw new Error("Pelo menos uma imagem de referência é necessária.");
 
-  // Step 1: Segment all reference images in parallel
   const segmentationResults = await Promise.all(
     references.map(async (ref) => {
       const segmentedUrl = await segmentObject(ref.image);
@@ -126,9 +125,7 @@ export async function composeImage({ baseImage, references }: ComposeImageParams
     })
   );
 
-  // Step 2: Compose all segmented objects onto the base image
-  const imageUrl = await composeWithAI(baseImage, segmentationResults);
-
+  const imageUrl = await composeWithAI(baseImage, segmentationResults, model);
   return { imageUrl };
 }
 
@@ -136,17 +133,23 @@ export async function composeImage({ baseImage, references }: ComposeImageParams
  * Simple refinement: send the current image + prompt to Gemini for text-based edits
  * (e.g., "change flower color to red", "remove the left arrangement")
  */
-export async function refineImage(currentImage: string, prompt: string): Promise<ComposeImageResult> {
+export async function refineImage(currentImage: string, prompt: string, referenceImage?: string, model?: string): Promise<ComposeImageResult> {
   if (!currentImage) throw new Error("Imagem atual é obrigatória.");
   if (!prompt) throw new Error("Prompt é obrigatório.");
 
-  const content = [
+  const content: any[] = [
     { type: "image_url", image_url: { url: currentImage } },
-    { type: "text", text: prompt },
   ];
 
+  if (referenceImage) {
+    content.push({ type: "text", text: "IMAGEM DE REFERÊNCIA anexada pelo usuário:" });
+    content.push({ type: "image_url", image_url: { url: referenceImage } });
+  }
+
+  content.push({ type: "text", text: prompt });
+
   const { data, error } = await supabase.functions.invoke("edit-image", {
-    body: { content },
+    body: { content, model },
   });
 
   if (error) {
