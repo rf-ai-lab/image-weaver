@@ -38,6 +38,7 @@ const Editor = () => {
   } = useImageEditor();
 
   const [prompt, setPrompt] = useState("");
+  const [llmProvider, setLlmProvider] = useState<LlmProvider>("openai");
   const [isAnnotating, setIsAnnotating] = useState(false);
   const [annotatedImage, setAnnotatedImage] = useState<string | null>(null);
   const [attachedImages, setAttachedImages] = useState<{ name: string; data: string }[]>([]);
