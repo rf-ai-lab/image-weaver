@@ -15,10 +15,11 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const { content } = await req.json();
+    const { content, model } = await req.json();
     if (!content || !Array.isArray(content)) {
       throw new Error("content array is required");
     }
+    const selectedModel = model || "google/gemini-3.1-flash-image-preview";
 
     const systemPrompt = {
       type: "text",
