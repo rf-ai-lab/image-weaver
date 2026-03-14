@@ -433,6 +433,7 @@ export async function handleReferenceImageEdit({
   currentImage,
   llmProvider,
   forceReplaceMode = false,
+  requestId,
 }: {
   compositionBaseImage: string | null;
   existingLayers: ObjectLayer[];
@@ -441,6 +442,7 @@ export async function handleReferenceImageEdit({
   currentImage: string;
   llmProvider?: LLMProvider;
   forceReplaceMode?: boolean;
+  requestId?: string;
 }): Promise<{
   imageUrl: string;
   layers: ObjectLayer[];
@@ -449,16 +451,22 @@ export async function handleReferenceImageEdit({
   targetLabel?: string;
   debug: ReferenceEditDebugInfo;
 }> {
+  const effectiveRequestId = requestId || createImageEditRequestId();
   const intentResult = parseReferenceIntent(instruction, existingLayers);
   const hasCompatibleLayer = intentResult.matchedLayerIndex >= 0;
+  const inputTrace = createImageTraceSnapshot(currentImage);
 
   logDebug("handleReferenceImageEdit:start", {
+    requestId: effectiveRequestId,
     instruction,
     detectedIntent: intentResult.intent,
     targetLabel: intentResult.targetLabel,
     hasCompatibleLayer,
     matchedLayerIndex: intentResult.matchedLayerIndex,
     forceReplaceMode,
+    inputImageHash: inputTrace.hash,
+    inputImageLength: inputTrace.length,
+    inputImagePreview: inputTrace.preview,
     currentImageId: toImageDebugId(currentImage),
     compositionBaseImageId: toImageDebugId(compositionBaseImage),
     referenceImageId: toImageDebugId(referenceImage),
@@ -467,22 +475,27 @@ export async function handleReferenceImageEdit({
 
   let imageUrl = "";
   let executedPath: ReferenceEditPath = "refineImageFallback";
-  let differenceRatio: number | undefined;
-  let noOpDetected: boolean | undefined;
+  let diagnostics: NoOpDiagnostics | null = null;
 
   if (intentResult.intent === "replace") {
-    const firstPass = await refineImage(currentImage, instruction, referenceImage, llmProvider);
+    const firstPass = await refineImage(currentImage, instruction, referenceImage, llmProvider, {
+      requestId: effectiveRequestId,
+      operation: "replace:first_pass",
+    });
     imageUrl = firstPass.imageUrl;
+    diagnostics = await detectNoOpEdit(currentImage, imageUrl);
 
-    const firstDiff = await detectNoOpEdit(currentImage, imageUrl);
-    differenceRatio = firstDiff.differenceRatio;
-    noOpDetected = firstDiff.noOp;
-
-    if (firstDiff.noOp) {
+    if (diagnostics.noOpDetected) {
       logDebug("handleReferenceImageEdit:replaceNoOpRetry", {
-        differenceRatio: firstDiff.differenceRatio,
+        requestId: effectiveRequestId,
+        branchExecutado: executedPath,
+        inputImageHash: diagnostics.input.hash,
+        outputImageHash: diagnostics.output.hash,
+        sameUrl: diagnostics.sameUrl,
+        sameHash: diagnostics.sameHash,
+        sameLength: diagnostics.sameLength,
+        differenceRatio: diagnostics.differenceRatio,
         threshold: NO_OP_DIFF_THRESHOLD,
-        path: "refineImageFallback",
       });
 
       const retry = await refineImageWithReplaceContext(
@@ -490,22 +503,53 @@ export async function handleReferenceImageEdit({
         referenceImage,
         instruction,
         llmProvider,
-        intentResult.targetLabel
+        intentResult.targetLabel,
+        effectiveRequestId
       );
 
       imageUrl = retry.imageUrl;
       executedPath = "refineImageWithReplaceContext";
-
-      const retryDiff = await detectNoOpEdit(currentImage, imageUrl);
-      differenceRatio = retryDiff.differenceRatio;
-      noOpDetected = retryDiff.noOp;
+      diagnostics = await detectNoOpEdit(currentImage, imageUrl);
     }
   } else {
-    const refined = await refineImage(currentImage, instruction, referenceImage, llmProvider);
+    const refined = await refineImage(currentImage, instruction, referenceImage, llmProvider, {
+      requestId: effectiveRequestId,
+      operation: "add_or_transform",
+    });
     imageUrl = refined.imageUrl;
+    diagnostics = await detectNoOpEdit(currentImage, imageUrl);
   }
 
+  if (!diagnostics) {
+    diagnostics = await detectNoOpEdit(currentImage, imageUrl);
+  }
+
+  if (diagnostics.noOpDetected) {
+    logDebug("handleReferenceImageEdit:noOpDetected", {
+      requestId: effectiveRequestId,
+      branchExecutado: executedPath,
+      detectedIntent: intentResult.intent,
+      targetLabel: intentResult.targetLabel,
+      inputImageHash: diagnostics.input.hash,
+      outputImageHash: diagnostics.output.hash,
+      inputImageLength: diagnostics.input.length,
+      outputImageLength: diagnostics.output.length,
+      inputImagePreview: diagnostics.input.preview,
+      outputImagePreview: diagnostics.output.preview,
+      sameUrl: diagnostics.sameUrl,
+      sameHash: diagnostics.sameHash,
+      sameLength: diagnostics.sameLength,
+      differenceRatio: diagnostics.differenceRatio,
+      noOpDetected: diagnostics.noOpDetected,
+    });
+
+    throw new Error("edição não executada: saída idêntica à entrada");
+  }
+
+  const outputTrace = diagnostics.output;
   const debug: ReferenceEditDebugInfo = {
+    requestId: effectiveRequestId,
+    timestamp: new Date().toISOString(),
     instruction,
     detectedIntent: intentResult.intent,
     targetLabel: intentResult.targetLabel,
@@ -514,14 +558,27 @@ export async function handleReferenceImageEdit({
     executedPath,
     forceReplaceMode,
     inputBaseImageId: toImageDebugId(compositionBaseImage),
-    inputCurrentImageId: toImageDebugId(currentImage),
+    inputCurrentImageId: inputTrace.identifier,
     inputReferenceImageId: toImageDebugId(referenceImage),
-    outputImageId: toImageDebugId(imageUrl),
-    differenceRatio,
-    noOpDetected,
+    outputImageId: outputTrace.identifier,
+    inputImageHash: inputTrace.hash,
+    outputImageHash: outputTrace.hash,
+    inputImageLength: inputTrace.length,
+    outputImageLength: outputTrace.length,
+    differenceRatio: diagnostics.differenceRatio,
+    noOpDetected: diagnostics.noOpDetected,
   };
 
-  logDebug("handleReferenceImageEdit:done", debug);
+  logDebug("handleReferenceImageEdit:done", {
+    requestId: debug.requestId,
+    detectedIntent: debug.detectedIntent,
+    targetLabel: debug.targetLabel,
+    branchExecutado: debug.executedPath,
+    inputImageHash: debug.inputImageHash,
+    outputImageHash: debug.outputImageHash,
+    differenceRatio: debug.differenceRatio,
+    noOpDetected: debug.noOpDetected,
+  });
 
   return {
     imageUrl,
