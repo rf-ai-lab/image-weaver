@@ -1,10 +1,10 @@
 import { NavLink } from "@/components/NavLink";
 import { Button } from "@/components/ui/button";
 import { useImageEditor } from "@/contexts/ImageEditorContext";
+import { generateImageWithFallback } from "@/lib/image-generation";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 
 const Header = () => {
   const { rows, isGenerating, setIsGenerating, addVersion } = useImageEditor();
@@ -22,20 +22,21 @@ const Header = () => {
     setIsGenerating(true);
     try {
       const initialPrompt = primary.instructions || "Preserve the original decoration of this wedding venue";
-      
-      const { data, error } = await supabase.functions.invoke("generate-decoration", {
-        body: { image: primary.imageData, prompt: initialPrompt },
+      const { imageUrl, usedFallback } = await generateImageWithFallback({
+        image: primary.imageData,
+        prompt: initialPrompt,
       });
 
-      if (error) throw error;
-      if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada");
-
-      addVersion(data.imageUrl);
+      addVersion(imageUrl);
       navigate("/editor");
+      if (usedFallback) {
+        toast.info("Sem créditos no provedor atual: usamos fallback automático.");
+      }
       toast.success("Primeira versão gerada!");
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Erro ao gerar imagem";
       console.error(e);
-      toast.error(e.message || "Erro ao gerar imagem");
+      toast.error(message);
     } finally {
       setIsGenerating(false);
     }
