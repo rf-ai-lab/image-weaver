@@ -133,17 +133,23 @@ export async function composeImage({ baseImage, references, model }: ComposeImag
  * Simple refinement: send the current image + prompt to Gemini for text-based edits
  * (e.g., "change flower color to red", "remove the left arrangement")
  */
-export async function refineImage(currentImage: string, prompt: string): Promise<ComposeImageResult> {
+export async function refineImage(currentImage: string, prompt: string, referenceImage?: string, model?: string): Promise<ComposeImageResult> {
   if (!currentImage) throw new Error("Imagem atual é obrigatória.");
   if (!prompt) throw new Error("Prompt é obrigatório.");
 
-  const content = [
+  const content: any[] = [
     { type: "image_url", image_url: { url: currentImage } },
-    { type: "text", text: prompt },
   ];
 
+  if (referenceImage) {
+    content.push({ type: "text", text: "IMAGEM DE REFERÊNCIA anexada pelo usuário:" });
+    content.push({ type: "image_url", image_url: { url: referenceImage } });
+  }
+
+  content.push({ type: "text", text: prompt });
+
   const { data, error } = await supabase.functions.invoke("edit-image", {
-    body: { content },
+    body: { content, model },
   });
 
   if (error) {
