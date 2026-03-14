@@ -56,6 +56,12 @@ serve(async (req) => {
 
     const model = LLM_MODELS[llmProvider || "gemini"] || LLM_MODELS.gemini;
 
+    console.log("[ReferenceEditDebug][edit-image] request", {
+      llmProvider: llmProvider || "gemini",
+      model,
+      contentSummary: summarizeContent(content),
+    });
+
     const systemPrompt = {
       type: "text",
       text: `VOCÊ É UM EDITOR DE IMAGENS PROFISSIONAL. SIGA ESTAS REGRAS COM RIGOR ABSOLUTO:
