@@ -171,6 +171,8 @@ const Editor = () => {
             ? `Objeto "${result.targetLabel}" substituído na composição.`
             : result.action === "added_layer"
             ? `Objeto "${result.targetLabel || "novo"}" adicionado à composição.`
+            : result.action === "transformed_layer"
+            ? `Objeto "${result.targetLabel}" transformado na composição.`
             : `Edição com referência aplicada via IA${result.targetLabel ? ` (alvo: ${result.targetLabel})` : ""}.`;
 
         setSelectedSetupImageIndex(null);
