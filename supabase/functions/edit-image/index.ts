@@ -13,6 +13,33 @@ const LLM_MODELS: Record<string, string> = {
   claude: "google/gemini-2.5-pro", // Claude not available on gateway, fallback to best alternative
 };
 
+function summarizeContent(content: any[]): unknown[] {
+  return content.map((item, index) => {
+    if (item?.type === "text") {
+      const text = String(item.text || "").replace(/\s+/g, " ").trim();
+      return {
+        index,
+        type: "text",
+        length: text.length,
+        preview: text.slice(0, 220),
+      };
+    }
+
+    if (item?.type === "image_url") {
+      const url = item?.image_url?.url || "";
+      return {
+        index,
+        type: "image_url",
+        isDataUrl: typeof url === "string" ? url.startsWith("data:") : false,
+        length: typeof url === "string" ? url.length : 0,
+        preview: typeof url === "string" ? url.slice(0, 140) : "",
+      };
+    }
+
+    return { index, type: item?.type || "unknown" };
+  });
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
