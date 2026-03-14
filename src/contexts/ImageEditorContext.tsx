@@ -14,6 +14,10 @@ export interface ImageVersion {
   prompt?: string;
   objectLayers?: ObjectLayer[];
   compositionBaseImage?: string | null;
+  requestId?: string;
+  pipelineBranch?: string;
+  inputImageHash?: string;
+  outputImageHash?: string;
 }
 
 export interface Project {
