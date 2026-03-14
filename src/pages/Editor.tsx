@@ -59,12 +59,27 @@ const Editor = () => {
   const selectedSetupImage =
     selectedSetupImageIndex !== null ? setupImages[selectedSetupImageIndex]?.imageData ?? null : null;
   const currentImage = selectedSetupImage || versionImage;
+  const displayedImage = annotatedImage || currentImage;
 
   const latestVersion = versions.length > 0 ? versions[versions.length - 1] : null;
   const lastGeneratedImage = latestVersion?.imageData ?? null;
   const latestObjectLayers = latestVersion?.objectLayers ?? [];
   const primaryImage = rows.find((r) => r.isPrimary)?.imageData ?? null;
   const compositionBaseImage = latestVersion?.compositionBaseImage ?? primaryImage;
+
+  useEffect(() => {
+    if (!displayedImage) return;
+    const trace = createImageTrace(displayedImage);
+    console.info("[ReferenceEditDebug] editor:renderedImage", {
+      timestamp: new Date().toISOString(),
+      renderedImageHash: trace.hash,
+      renderedImageLength: trace.length,
+      renderedImagePreview: trace.preview,
+      currentVersionIndex,
+      selectedSetupImageIndex,
+      versionsCount: versions.length,
+    });
+  }, [displayedImage, currentVersionIndex, selectedSetupImageIndex, versions.length]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
