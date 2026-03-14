@@ -21,10 +21,6 @@ const Header = () => {
 
     setIsGenerating(true);
     try {
-      // Build deterministic payload: primary image first, references after
-      const content: any[] = [];
-      const references = rows.filter((r) => !r.isPrimary && r.imageData);
-
       const initialPrompt = primary.instructions || "Preserve the original decoration of this wedding venue";
       
       const { data, error } = await supabase.functions.invoke("generate-decoration", {
