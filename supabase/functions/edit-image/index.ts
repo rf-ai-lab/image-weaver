@@ -40,6 +40,42 @@ function summarizeContent(content: any[]): unknown[] {
   });
 }
 
+function createStableHash(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function imageTrace(image: string | null | undefined) {
+  if (!image) {
+    return {
+      hash: "null",
+      length: 0,
+      preview: "null",
+      identifier: "null",
+    };
+  }
+
+  const sample = image.startsWith("data:") ? image.slice(Math.max(0, image.length - 4096)) : image;
+  const hash = createStableHash(sample);
+  const preview = image.length > 96 ? `${image.slice(0, 48)}...${image.slice(-48)}` : image;
+  return {
+    hash,
+    length: image.length,
+    preview,
+    identifier: image.startsWith("data:") ? `data:len=${image.length};hash=${hash}` : `url:${preview};hash=${hash}`,
+  };
+}
+
+function findImageUrls(content: any[]): string[] {
+  return content
+    .filter((item) => item?.type === "image_url" && typeof item?.image_url?.url === "string")
+    .map((item) => item.image_url.url as string);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -49,16 +85,40 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const { content, llmProvider } = await req.json();
+    const {
+      content,
+      llmProvider,
+      requestId,
+      operation,
+      inputImageHash: forwardedInputImageHash,
+      referenceImageHash: forwardedReferenceImageHash,
+    } = await req.json();
+
     if (!content || !Array.isArray(content)) {
       throw new Error("content array is required");
     }
 
+    const effectiveRequestId = requestId || crypto.randomUUID();
     const model = LLM_MODELS[llmProvider || "gemini"] || LLM_MODELS.gemini;
+    const imageUrls = findImageUrls(content);
+    const inputImage = imageUrls[0] ?? null;
+    const referenceImage = imageUrls[1] ?? null;
+    const inputTrace = imageTrace(inputImage);
+    const referenceTrace = imageTrace(referenceImage);
 
     console.log("[ReferenceEditDebug][edit-image] request", {
+      timestamp: new Date().toISOString(),
+      requestId: effectiveRequestId,
+      operation: operation || "unspecified",
       llmProvider: llmProvider || "gemini",
       model,
+      cacheUsed: false,
+      inputImageHash: forwardedInputImageHash || inputTrace.hash,
+      referenceImageHash: forwardedReferenceImageHash || referenceTrace.hash,
+      inputImageLength: inputTrace.length,
+      referenceImageLength: referenceTrace.length,
+      inputImagePreview: inputTrace.preview,
+      referenceImagePreview: referenceTrace.preview,
       contentSummary: summarizeContent(content),
     });
 
@@ -134,8 +194,6 @@ RESULTADO:
 
     const augmentedContent = [systemPrompt, ...content];
 
-    console.log(`Calling AI gateway with model: ${model}...`);
-
     const body: Record<string, unknown> = {
       model,
       messages: [
@@ -145,6 +203,18 @@ RESULTADO:
         },
       ],
     };
+
+    console.log("[ReferenceEditDebug][edit-image] model-request", {
+      timestamp: new Date().toISOString(),
+      requestId: effectiveRequestId,
+      operation: operation || "unspecified",
+      model,
+      payloadImageCount: imageUrls.length,
+      payloadTextCount: content.filter((item) => item?.type === "text").length,
+      payloadTextPreview: content
+        .filter((item) => item?.type === "text")
+        .map((item) => String(item.text || "").slice(0, 200)),
+    });
 
     // Only Gemini image models support modalities
     if (model.includes("gemini") && model.includes("image")) {
@@ -189,14 +259,37 @@ RESULTADO:
       throw new Error("Nenhuma imagem foi gerada pela IA");
     }
 
+    const outputTrace = imageTrace(imageUrl);
+
     console.log("[ReferenceEditDebug][edit-image] response", {
-      imageUrlPreview: typeof imageUrl === "string" ? imageUrl.slice(0, 180) : "",
+      timestamp: new Date().toISOString(),
+      requestId: effectiveRequestId,
+      operation: operation || "unspecified",
+      model,
+      inputImageHash: inputTrace.hash,
+      outputImageHash: outputTrace.hash,
+      outputImageLength: outputTrace.length,
+      outputImagePreview: outputTrace.preview,
       hasTextResponse: Boolean(textResponse),
     });
 
-    return new Response(JSON.stringify({ imageUrl, text: textResponse }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        imageUrl,
+        text: textResponse,
+        requestId: effectiveRequestId,
+        debug: {
+          model,
+          inputImageHash: inputTrace.hash,
+          outputImageHash: outputTrace.hash,
+          outputImageLength: outputTrace.length,
+          cacheUsed: false,
+        },
+      }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   } catch (e) {
     console.error("edit-image error:", e);
     const message = e instanceof Error ? e.message : "Erro desconhecido";

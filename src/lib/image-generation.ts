@@ -72,7 +72,26 @@ export type ReferenceEditPath =
   | "appendReferenceObjectToComposition"
   | "refineImageFallback";
 
+interface ImageTraceSnapshot {
+  hash: string;
+  length: number;
+  preview: string;
+  identifier: string;
+}
+
+interface NoOpDiagnostics {
+  input: ImageTraceSnapshot;
+  output: ImageTraceSnapshot;
+  sameUrl: boolean;
+  sameHash: boolean;
+  sameLength: boolean;
+  differenceRatio: number;
+  noOpDetected: boolean;
+}
+
 export interface ReferenceEditDebugInfo {
+  requestId: string;
+  timestamp: string;
   instruction: string;
   detectedIntent: ReferenceIntent;
   targetLabel?: string;
@@ -84,6 +103,10 @@ export interface ReferenceEditDebugInfo {
   inputCurrentImageId: string;
   inputReferenceImageId: string;
   outputImageId: string;
+  inputImageHash: string;
+  outputImageHash: string;
+  inputImageLength: number;
+  outputImageLength: number;
   differenceRatio?: number;
   noOpDetected?: boolean;
 }
@@ -97,21 +120,49 @@ function createStableHash(value: string): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-function toImageDebugId(image: string | null | undefined): string {
-  if (!image) return "null";
-
-  if (image.startsWith("data:")) {
-    const headerEnd = image.indexOf(",");
-    const header = headerEnd > -1 ? image.slice(0, headerEnd) : "data";
-    const sample = image.slice(Math.max(0, image.length - 2048));
-    return `data:${header};len=${image.length};hash=${createStableHash(sample)}`;
-  }
-
-  return `url:${image}`;
+function buildImagePreview(value: string): string {
+  if (!value) return "";
+  if (value.length <= 48) return value;
+  return `${value.slice(0, 24)}...${value.slice(-24)}`;
 }
 
-function logDebug(event: string, payload: unknown) {
-  console.info(`${DEBUG_PREFIX} ${event}`, payload);
+function createImageTraceSnapshot(image: string | null | undefined): ImageTraceSnapshot {
+  if (!image) {
+    return {
+      hash: "null",
+      length: 0,
+      preview: "null",
+      identifier: "null",
+    };
+  }
+
+  const sample = image.startsWith("data:") ? image.slice(Math.max(0, image.length - 4096)) : image;
+  const hash = createStableHash(sample);
+  const identifier = image.startsWith("data:")
+    ? `data:${image.slice(0, Math.min(32, image.length))};len=${image.length};hash=${hash}`
+    : `url:${buildImagePreview(image)};len=${image.length};hash=${hash}`;
+
+  return {
+    hash,
+    length: image.length,
+    preview: buildImagePreview(image),
+    identifier,
+  };
+}
+
+function toImageDebugId(image: string | null | undefined): string {
+  return createImageTraceSnapshot(image).identifier;
+}
+
+export function createImageEditRequestId(): string {
+  return crypto.randomUUID();
+}
+
+function logDebug(event: string, payload: Record<string, unknown>) {
+  console.info(`${DEBUG_PREFIX} ${event}`, {
+    timestamp: new Date().toISOString(),
+    ...payload,
+  });
 }
 
 async function loadImageForDiff(source: string): Promise<HTMLImageElement> {
@@ -167,11 +218,26 @@ async function computeImageDifferenceRatio(beforeImage: string, afterImage: stri
   return diffSum / (width * height * 3 * 255);
 }
 
-async function detectNoOpEdit(beforeImage: string, afterImage: string): Promise<{ differenceRatio: number; noOp: boolean }> {
-  const differenceRatio = await computeImageDifferenceRatio(beforeImage, afterImage);
+async function detectNoOpEdit(beforeImage: string, afterImage: string): Promise<NoOpDiagnostics> {
+  const [differenceRatio, input, output] = await Promise.all([
+    computeImageDifferenceRatio(beforeImage, afterImage),
+    Promise.resolve(createImageTraceSnapshot(beforeImage)),
+    Promise.resolve(createImageTraceSnapshot(afterImage)),
+  ]);
+
+  const sameUrl = beforeImage === afterImage;
+  const sameHash = input.hash === output.hash;
+  const sameLength = input.length === output.length;
+  const noOpDetected = sameUrl || (sameHash && sameLength) || differenceRatio <= NO_OP_DIFF_THRESHOLD;
+
   return {
+    input,
+    output,
+    sameUrl,
+    sameHash,
+    sameLength,
     differenceRatio,
-    noOp: differenceRatio <= NO_OP_DIFF_THRESHOLD,
+    noOpDetected,
   };
 }
 
@@ -367,6 +433,7 @@ export async function handleReferenceImageEdit({
   currentImage,
   llmProvider,
   forceReplaceMode = false,
+  requestId,
 }: {
   compositionBaseImage: string | null;
   existingLayers: ObjectLayer[];
@@ -375,6 +442,7 @@ export async function handleReferenceImageEdit({
   currentImage: string;
   llmProvider?: LLMProvider;
   forceReplaceMode?: boolean;
+  requestId?: string;
 }): Promise<{
   imageUrl: string;
   layers: ObjectLayer[];
@@ -383,16 +451,22 @@ export async function handleReferenceImageEdit({
   targetLabel?: string;
   debug: ReferenceEditDebugInfo;
 }> {
+  const effectiveRequestId = requestId || createImageEditRequestId();
   const intentResult = parseReferenceIntent(instruction, existingLayers);
   const hasCompatibleLayer = intentResult.matchedLayerIndex >= 0;
+  const inputTrace = createImageTraceSnapshot(currentImage);
 
   logDebug("handleReferenceImageEdit:start", {
+    requestId: effectiveRequestId,
     instruction,
     detectedIntent: intentResult.intent,
     targetLabel: intentResult.targetLabel,
     hasCompatibleLayer,
     matchedLayerIndex: intentResult.matchedLayerIndex,
     forceReplaceMode,
+    inputImageHash: inputTrace.hash,
+    inputImageLength: inputTrace.length,
+    inputImagePreview: inputTrace.preview,
     currentImageId: toImageDebugId(currentImage),
     compositionBaseImageId: toImageDebugId(compositionBaseImage),
     referenceImageId: toImageDebugId(referenceImage),
@@ -401,22 +475,27 @@ export async function handleReferenceImageEdit({
 
   let imageUrl = "";
   let executedPath: ReferenceEditPath = "refineImageFallback";
-  let differenceRatio: number | undefined;
-  let noOpDetected: boolean | undefined;
+  let diagnostics: NoOpDiagnostics | null = null;
 
   if (intentResult.intent === "replace") {
-    const firstPass = await refineImage(currentImage, instruction, referenceImage, llmProvider);
+    const firstPass = await refineImage(currentImage, instruction, referenceImage, llmProvider, {
+      requestId: effectiveRequestId,
+      operation: "replace:first_pass",
+    });
     imageUrl = firstPass.imageUrl;
+    diagnostics = await detectNoOpEdit(currentImage, imageUrl);
 
-    const firstDiff = await detectNoOpEdit(currentImage, imageUrl);
-    differenceRatio = firstDiff.differenceRatio;
-    noOpDetected = firstDiff.noOp;
-
-    if (firstDiff.noOp) {
+    if (diagnostics.noOpDetected) {
       logDebug("handleReferenceImageEdit:replaceNoOpRetry", {
-        differenceRatio: firstDiff.differenceRatio,
+        requestId: effectiveRequestId,
+        branchExecutado: executedPath,
+        inputImageHash: diagnostics.input.hash,
+        outputImageHash: diagnostics.output.hash,
+        sameUrl: diagnostics.sameUrl,
+        sameHash: diagnostics.sameHash,
+        sameLength: diagnostics.sameLength,
+        differenceRatio: diagnostics.differenceRatio,
         threshold: NO_OP_DIFF_THRESHOLD,
-        path: "refineImageFallback",
       });
 
       const retry = await refineImageWithReplaceContext(
@@ -424,22 +503,53 @@ export async function handleReferenceImageEdit({
         referenceImage,
         instruction,
         llmProvider,
-        intentResult.targetLabel
+        intentResult.targetLabel,
+        effectiveRequestId
       );
 
       imageUrl = retry.imageUrl;
       executedPath = "refineImageWithReplaceContext";
-
-      const retryDiff = await detectNoOpEdit(currentImage, imageUrl);
-      differenceRatio = retryDiff.differenceRatio;
-      noOpDetected = retryDiff.noOp;
+      diagnostics = await detectNoOpEdit(currentImage, imageUrl);
     }
   } else {
-    const refined = await refineImage(currentImage, instruction, referenceImage, llmProvider);
+    const refined = await refineImage(currentImage, instruction, referenceImage, llmProvider, {
+      requestId: effectiveRequestId,
+      operation: "add_or_transform",
+    });
     imageUrl = refined.imageUrl;
+    diagnostics = await detectNoOpEdit(currentImage, imageUrl);
   }
 
+  if (!diagnostics) {
+    diagnostics = await detectNoOpEdit(currentImage, imageUrl);
+  }
+
+  if (diagnostics.noOpDetected) {
+    logDebug("handleReferenceImageEdit:noOpDetected", {
+      requestId: effectiveRequestId,
+      branchExecutado: executedPath,
+      detectedIntent: intentResult.intent,
+      targetLabel: intentResult.targetLabel,
+      inputImageHash: diagnostics.input.hash,
+      outputImageHash: diagnostics.output.hash,
+      inputImageLength: diagnostics.input.length,
+      outputImageLength: diagnostics.output.length,
+      inputImagePreview: diagnostics.input.preview,
+      outputImagePreview: diagnostics.output.preview,
+      sameUrl: diagnostics.sameUrl,
+      sameHash: diagnostics.sameHash,
+      sameLength: diagnostics.sameLength,
+      differenceRatio: diagnostics.differenceRatio,
+      noOpDetected: diagnostics.noOpDetected,
+    });
+
+    throw new Error("edição não executada: saída idêntica à entrada");
+  }
+
+  const outputTrace = diagnostics.output;
   const debug: ReferenceEditDebugInfo = {
+    requestId: effectiveRequestId,
+    timestamp: new Date().toISOString(),
     instruction,
     detectedIntent: intentResult.intent,
     targetLabel: intentResult.targetLabel,
@@ -448,14 +558,27 @@ export async function handleReferenceImageEdit({
     executedPath,
     forceReplaceMode,
     inputBaseImageId: toImageDebugId(compositionBaseImage),
-    inputCurrentImageId: toImageDebugId(currentImage),
+    inputCurrentImageId: inputTrace.identifier,
     inputReferenceImageId: toImageDebugId(referenceImage),
-    outputImageId: toImageDebugId(imageUrl),
-    differenceRatio,
-    noOpDetected,
+    outputImageId: outputTrace.identifier,
+    inputImageHash: inputTrace.hash,
+    outputImageHash: outputTrace.hash,
+    inputImageLength: inputTrace.length,
+    outputImageLength: outputTrace.length,
+    differenceRatio: diagnostics.differenceRatio,
+    noOpDetected: diagnostics.noOpDetected,
   };
 
-  logDebug("handleReferenceImageEdit:done", debug);
+  logDebug("handleReferenceImageEdit:done", {
+    requestId: debug.requestId,
+    detectedIntent: debug.detectedIntent,
+    targetLabel: debug.targetLabel,
+    branchExecutado: debug.executedPath,
+    inputImageHash: debug.inputImageHash,
+    outputImageHash: debug.outputImageHash,
+    differenceRatio: debug.differenceRatio,
+    noOpDetected: debug.noOpDetected,
+  });
 
   return {
     imageUrl,
@@ -467,6 +590,11 @@ export async function handleReferenceImageEdit({
   };
 }
 
+type EditInvokeTraceOptions = {
+  requestId: string;
+  operation: string;
+};
+
 /**
  * AI refinement with explicit replace-mode system instructions.
  */
@@ -474,8 +602,9 @@ async function refineImageWithReplaceContext(
   currentImage: string,
   referenceImage: string,
   instruction: string,
-  llmProvider?: LLMProvider,
-  targetLabel?: string
+  llmProvider: LLMProvider | undefined,
+  targetLabel: string | undefined,
+  requestId: string
 ): Promise<{ imageUrl: string }> {
   const replaceSystemPrompt = `MODO DE SUBSTITUIÇÃO ESTRITA ATIVADO.
 
@@ -502,6 +631,8 @@ REGRAS:
   ];
 
   logDebug("refineImageWithReplaceContext:request", {
+    requestId,
+    operation: "replace:retry_context",
     llmProvider: llmProvider || "gemini",
     targetLabel,
     currentImageId: toImageDebugId(currentImage),
@@ -510,7 +641,14 @@ REGRAS:
   });
 
   const { data, error } = await supabase.functions.invoke("edit-image", {
-    body: { content, llmProvider: llmProvider || "gemini" },
+    body: {
+      content,
+      llmProvider: llmProvider || "gemini",
+      requestId,
+      operation: "replace:retry_context",
+      inputImageHash: createImageTraceSnapshot(currentImage).hash,
+      referenceImageHash: createImageTraceSnapshot(referenceImage).hash,
+    },
   });
 
   if (error) {
@@ -521,6 +659,7 @@ REGRAS:
   if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada.");
 
   logDebug("refineImageWithReplaceContext:response", {
+    requestId,
     outputImageId: toImageDebugId(data.imageUrl),
   });
 
@@ -534,10 +673,14 @@ export async function refineImage(
   currentImage: string,
   prompt: string,
   referenceImage?: string,
-  llmProvider?: LLMProvider
+  llmProvider?: LLMProvider,
+  trace?: EditInvokeTraceOptions
 ): Promise<{ imageUrl: string }> {
   if (!currentImage) throw new Error("Imagem atual é obrigatória.");
   if (!prompt && !referenceImage) throw new Error("Prompt ou imagem de referência é obrigatório.");
+
+  const requestId = trace?.requestId || createImageEditRequestId();
+  const operation = trace?.operation || "refine:default";
 
   const content: any[] = [{ type: "image_url", image_url: { url: currentImage } }];
 
@@ -556,8 +699,31 @@ export async function refineImage(
     content.push({ type: "text", text: prompt });
   }
 
+  const currentTrace = createImageTraceSnapshot(currentImage);
+  const referenceTrace = createImageTraceSnapshot(referenceImage);
+
+  logDebug("refineImage:request", {
+    requestId,
+    operation,
+    llmProvider: llmProvider || "gemini",
+    currentImageHash: currentTrace.hash,
+    currentImageLength: currentTrace.length,
+    currentImagePreview: currentTrace.preview,
+    referenceImageHash: referenceTrace.hash,
+    referenceImageLength: referenceTrace.length,
+    referenceImagePreview: referenceTrace.preview,
+    textBlocks: content.filter((item) => item.type === "text").map((item) => item.text),
+  });
+
   const { data, error } = await supabase.functions.invoke("edit-image", {
-    body: { content, llmProvider: llmProvider || "gemini" },
+    body: {
+      content,
+      llmProvider: llmProvider || "gemini",
+      requestId,
+      operation,
+      inputImageHash: currentTrace.hash,
+      referenceImageHash: referenceTrace.hash,
+    },
   });
 
   if (error) {
@@ -566,5 +732,16 @@ export async function refineImage(
   }
 
   if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada.");
+
+  const outputTrace = createImageTraceSnapshot(data.imageUrl);
+  logDebug("refineImage:response", {
+    requestId,
+    operation,
+    outputImageHash: outputTrace.hash,
+    outputImageLength: outputTrace.length,
+    outputImagePreview: outputTrace.preview,
+    outputImageId: outputTrace.identifier,
+  });
+
   return { imageUrl: data.imageUrl };
 }

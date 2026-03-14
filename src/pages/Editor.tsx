@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useImageEditor } from "@/contexts/ImageEditorContext";
 import VersionHistory from "@/components/VersionHistory";
 import DrawingOverlay from "@/components/DrawingOverlay";
@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
-import { handleReferenceImageEdit, refineImage } from "@/lib/image-generation";
+import { createImageEditRequestId, handleReferenceImageEdit, refineImage } from "@/lib/image-generation";
 
 export type LLMProvider = "gemini" | "openai" | "claude";
 
@@ -17,7 +17,22 @@ const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
   { value: "claude", label: "Claude" },
 ];
 
+const createStableHash = (value: string) => {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+};
 
+const createImageTrace = (image: string | null | undefined) => {
+  if (!image) return { hash: "null", length: 0, preview: "null" };
+  const sample = image.startsWith("data:") ? image.slice(Math.max(0, image.length - 4096)) : image;
+  const hash = createStableHash(sample);
+  const preview = image.length > 64 ? `${image.slice(0, 32)}...${image.slice(-32)}` : image;
+  return { hash, length: image.length, preview };
+};
 
 const Editor = () => {
   const {
@@ -44,12 +59,27 @@ const Editor = () => {
   const selectedSetupImage =
     selectedSetupImageIndex !== null ? setupImages[selectedSetupImageIndex]?.imageData ?? null : null;
   const currentImage = selectedSetupImage || versionImage;
+  const displayedImage = annotatedImage || currentImage;
 
   const latestVersion = versions.length > 0 ? versions[versions.length - 1] : null;
   const lastGeneratedImage = latestVersion?.imageData ?? null;
   const latestObjectLayers = latestVersion?.objectLayers ?? [];
   const primaryImage = rows.find((r) => r.isPrimary)?.imageData ?? null;
   const compositionBaseImage = latestVersion?.compositionBaseImage ?? primaryImage;
+
+  useEffect(() => {
+    if (!displayedImage) return;
+    const trace = createImageTrace(displayedImage);
+    console.info("[ReferenceEditDebug] editor:renderedImage", {
+      timestamp: new Date().toISOString(),
+      renderedImageHash: trace.hash,
+      renderedImageLength: trace.length,
+      renderedImagePreview: trace.preview,
+      currentVersionIndex,
+      selectedSetupImageIndex,
+      versionsCount: versions.length,
+    });
+  }, [displayedImage, currentVersionIndex, selectedSetupImageIndex, versions.length]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -84,6 +114,24 @@ const Editor = () => {
       return;
     }
 
+    const requestId = createImageEditRequestId();
+    const inputTrace = createImageTrace(imageToSend);
+    const referenceTrace = createImageTrace(attachedImage);
+
+    console.info("[ReferenceEditDebug] editor:request", {
+      requestId,
+      timestamp: new Date().toISOString(),
+      instruction: cleanedPrompt,
+      imageToSendHash: inputTrace.hash,
+      imageToSendLength: inputTrace.length,
+      imageToSendPreview: inputTrace.preview,
+      attachedImageHash: referenceTrace.hash,
+      attachedImageLength: referenceTrace.length,
+      attachedImagePreview: referenceTrace.preview,
+      selectedLLM,
+      hasAttachedImage: Boolean(attachedImage),
+    });
+
     setIsGenerating(true);
     try {
       // --- PATH 1: Attached reference image (replace or add) ---
@@ -97,13 +145,25 @@ const Editor = () => {
           instruction,
           currentImage: imageToSend,
           llmProvider: selectedLLM,
+          requestId,
         });
 
-        console.info("[ReferenceEditDebug] Editor result", result.debug);
+        const outputTrace = createImageTrace(result.imageUrl);
+        console.info("[ReferenceEditDebug] editor:result", {
+          requestId,
+          ...result.debug,
+          imageUrlForAddVersionHash: outputTrace.hash,
+          imageUrlForAddVersionLength: outputTrace.length,
+          imageUrlForAddVersionPreview: outputTrace.preview,
+        });
 
         addVersion(result.imageUrl, instruction, {
           objectLayers: result.layers,
           compositionBaseImage: result.compositionBaseImage,
+          requestId,
+          pipelineBranch: result.debug.executedPath,
+          inputImageHash: inputTrace.hash,
+          outputImageHash: outputTrace.hash,
         });
 
         const actionMessage =
@@ -122,10 +182,32 @@ const Editor = () => {
       }
 
       // --- PATH 2: Free-form AI refinement ---
-      const { imageUrl } = await refineImage(imageToSend, cleanedPrompt, undefined, selectedLLM);
+      const { imageUrl } = await refineImage(imageToSend, cleanedPrompt, undefined, selectedLLM, {
+        requestId,
+        operation: "editor:free_form",
+      });
+      const outputTrace = createImageTrace(imageUrl);
+      const sameOutput = imageUrl === imageToSend || (outputTrace.hash === inputTrace.hash && outputTrace.length === inputTrace.length);
+
+      console.info("[ReferenceEditDebug] editor:freeFormResult", {
+        requestId,
+        inputImageHash: inputTrace.hash,
+        outputImageHash: outputTrace.hash,
+        outputImageLength: outputTrace.length,
+        noOpDetected: sameOutput,
+      });
+
+      if (sameOutput) {
+        throw new Error("edição não executada: saída idêntica à entrada");
+      }
+
       addVersion(imageUrl, cleanedPrompt, {
         objectLayers: latestObjectLayers,
         compositionBaseImage: compositionBaseImage || imageUrl,
+        requestId,
+        pipelineBranch: "refineImage",
+        inputImageHash: inputTrace.hash,
+        outputImageHash: outputTrace.hash,
       });
       setSelectedSetupImageIndex(null);
       setPrompt("");
@@ -134,7 +216,7 @@ const Editor = () => {
       toast.success("Imagem atualizada!");
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Erro ao editar imagem";
-      console.error(e);
+      console.error("[ReferenceEditDebug] editor:error", { requestId, message, error: e });
       toast.error(message);
     } finally {
       setIsGenerating(false);

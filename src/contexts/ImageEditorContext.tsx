@@ -14,6 +14,10 @@ export interface ImageVersion {
   prompt?: string;
   objectLayers?: ObjectLayer[];
   compositionBaseImage?: string | null;
+  requestId?: string;
+  pipelineBranch?: string;
+  inputImageHash?: string;
+  outputImageHash?: string;
 }
 
 export interface Project {
@@ -38,7 +42,14 @@ interface ImageEditorContextType {
   addVersion: (
     imageData: string,
     prompt?: string,
-    metadata?: { objectLayers?: ObjectLayer[]; compositionBaseImage?: string | null }
+    metadata?: {
+      objectLayers?: ObjectLayer[];
+      compositionBaseImage?: string | null;
+      requestId?: string;
+      pipelineBranch?: string;
+      inputImageHash?: string;
+      outputImageHash?: string;
+    }
   ) => void;
   deleteVersion: (index: number) => void;
   setCurrentVersion: (index: number) => void;
@@ -50,6 +61,23 @@ interface ImageEditorContextType {
 }
 
 const ImageEditorContext = createContext<ImageEditorContextType | null>(null);
+
+const createStableHash = (value: string) => {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+};
+
+const createImageTrace = (image: string | null | undefined) => {
+  if (!image) return { hash: "null", length: 0, preview: "null" };
+  const sample = image.startsWith("data:") ? image.slice(Math.max(0, image.length - 4096)) : image;
+  const hash = createStableHash(sample);
+  const preview = image.length > 64 ? `${image.slice(0, 32)}...${image.slice(-32)}` : image;
+  return { hash, length: image.length, preview };
+};
 
 const makeFirstRow = (): ImageRow => ({
   id: crypto.randomUUID(),
@@ -161,19 +189,54 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     (
       imageData: string,
       prompt?: string,
-      metadata?: { objectLayers?: ObjectLayer[]; compositionBaseImage?: string | null }
+      metadata?: {
+        objectLayers?: ObjectLayer[];
+        compositionBaseImage?: string | null;
+        requestId?: string;
+        pipelineBranch?: string;
+        inputImageHash?: string;
+        outputImageHash?: string;
+      }
     ) => {
+      const incomingTrace = createImageTrace(imageData);
+      console.info("[ReferenceEditDebug] context:addVersion:input", {
+        timestamp: new Date().toISOString(),
+        requestId: metadata?.requestId,
+        pipelineBranch: metadata?.pipelineBranch,
+        prompt,
+        imageUrlSentToAddVersionHash: incomingTrace.hash,
+        imageUrlSentToAddVersionLength: incomingTrace.length,
+        imageUrlSentToAddVersionPreview: incomingTrace.preview,
+        inputImageHash: metadata?.inputImageHash,
+        outputImageHash: metadata?.outputImageHash,
+      });
+
       setVersions((prev) => {
-        const next = [
-          ...prev,
-          {
-            label: `Versão ${prev.length + 1}`,
-            imageData,
-            prompt,
-            objectLayers: metadata?.objectLayers,
-            compositionBaseImage: metadata?.compositionBaseImage,
-          },
-        ];
+        const nextVersion: ImageVersion = {
+          label: `Versão ${prev.length + 1}`,
+          imageData,
+          prompt,
+          objectLayers: metadata?.objectLayers,
+          compositionBaseImage: metadata?.compositionBaseImage,
+          requestId: metadata?.requestId,
+          pipelineBranch: metadata?.pipelineBranch,
+          inputImageHash: metadata?.inputImageHash,
+          outputImageHash: metadata?.outputImageHash,
+        };
+
+        const next = [...prev, nextVersion];
+        const storedTrace = createImageTrace(nextVersion.imageData);
+
+        console.info("[ReferenceEditDebug] context:addVersion:stored", {
+          timestamp: new Date().toISOString(),
+          requestId: nextVersion.requestId,
+          label: nextVersion.label,
+          storedImageHash: storedTrace.hash,
+          storedImageLength: storedTrace.length,
+          storedImagePreview: storedTrace.preview,
+          versionsAfterInsert: next.length,
+        });
+
         setCurrentVersionIndex(next.length - 1);
         return next;
       });
