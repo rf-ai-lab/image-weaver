@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { LLMProvider } from "@/pages/Editor";
 
 export interface ReferenceImage {
   image: string;
@@ -51,7 +52,6 @@ async function parseInvokeError(error: FunctionInvokeError): Promise<{ status?: 
 
 /**
  * Step 1: Segment object from reference image using rembg (background removal).
- * Returns a URL to the PNG with transparent background.
  */
 async function segmentObject(image: string): Promise<string> {
   const { data, error } = await supabase.functions.invoke("segment-object", {
@@ -69,10 +69,8 @@ async function segmentObject(image: string): Promise<string> {
 
 /**
  * Step 2: Compose segmented objects onto the base image using Gemini vision.
- * Sends the base image + all segmented reference PNGs + instructions to the AI.
  */
 async function composeWithAI(baseImage: string, segmentedRefs: { segmentedUrl: string; instruction: string }[]): Promise<string> {
-  // Build content array: base image first, then each segmented reference with its instruction
   const content: any[] = [
     { type: "text", text: "Esta é a IMAGEM BASE (cena principal). Preserve-a integralmente." },
     { type: "image_url", image_url: { url: baseImage } },
@@ -109,16 +107,12 @@ async function composeWithAI(baseImage: string, segmentedRefs: { segmentedUrl: s
 }
 
 /**
- * Main composition pipeline:
- * 1. For each reference image → segment object (remove background)
- * 2. Send base image + all segmented objects + instructions to Gemini for composition
- * 3. Return the final composed image
+ * Main composition pipeline.
  */
 export async function composeImage({ baseImage, references }: ComposeImageParams): Promise<ComposeImageResult> {
   if (!baseImage) throw new Error("Imagem base é obrigatória.");
   if (!references || references.length === 0) throw new Error("Pelo menos uma imagem de referência é necessária.");
 
-  // Step 1: Segment all reference images in parallel
   const segmentationResults = await Promise.all(
     references.map(async (ref) => {
       const segmentedUrl = await segmentObject(ref.image);
@@ -126,27 +120,44 @@ export async function composeImage({ baseImage, references }: ComposeImageParams
     })
   );
 
-  // Step 2: Compose all segmented objects onto the base image
   const imageUrl = await composeWithAI(baseImage, segmentationResults);
-
   return { imageUrl };
 }
 
 /**
- * Simple refinement: send the current image + prompt to Gemini for text-based edits
- * (e.g., "change flower color to red", "remove the left arrangement")
+ * Refinement: send current image + prompt + optional reference image to AI.
+ * Supports LLM provider selection.
  */
-export async function refineImage(currentImage: string, prompt: string): Promise<ComposeImageResult> {
+export async function refineImage(
+  currentImage: string,
+  prompt: string,
+  referenceImage?: string,
+  llmProvider?: LLMProvider
+): Promise<ComposeImageResult> {
   if (!currentImage) throw new Error("Imagem atual é obrigatória.");
-  if (!prompt) throw new Error("Prompt é obrigatório.");
+  if (!prompt && !referenceImage) throw new Error("Prompt ou imagem de referência é obrigatório.");
 
-  const content = [
+  const content: any[] = [
     { type: "image_url", image_url: { url: currentImage } },
-    { type: "text", text: prompt },
   ];
 
+  if (referenceImage) {
+    content.push({
+      type: "text",
+      text: "A imagem a seguir é uma REFERÊNCIA. Use-a conforme a instrução do usuário:",
+    });
+    content.push({
+      type: "image_url",
+      image_url: { url: referenceImage },
+    });
+  }
+
+  if (prompt) {
+    content.push({ type: "text", text: prompt });
+  }
+
   const { data, error } = await supabase.functions.invoke("edit-image", {
-    body: { content },
+    body: { content, llmProvider: llmProvider || "gemini" },
   });
 
   if (error) {

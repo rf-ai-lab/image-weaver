@@ -6,6 +6,13 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// Map provider names to gateway model IDs
+const LLM_MODELS: Record<string, string> = {
+  gemini: "google/gemini-3.1-flash-image-preview",
+  openai: "openai/gpt-5",
+  claude: "google/gemini-2.5-pro", // Claude not available on gateway, fallback to best alternative
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -15,10 +22,12 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const { content } = await req.json();
+    const { content, llmProvider } = await req.json();
     if (!content || !Array.isArray(content)) {
       throw new Error("content array is required");
     }
+
+    const model = LLM_MODELS[llmProvider || "gemini"] || LLM_MODELS.gemini;
 
     const systemPrompt = {
       type: "text",
@@ -78,7 +87,22 @@ RESULTADO:
 
     const augmentedContent = [systemPrompt, ...content];
 
-    console.log("Calling AI gateway with gemini-3.1-flash-image-preview...");
+    console.log(`Calling AI gateway with model: ${model}...`);
+
+    const body: Record<string, unknown> = {
+      model,
+      messages: [
+        {
+          role: "user",
+          content: augmentedContent,
+        },
+      ],
+    };
+
+    // Only Gemini image models support modalities
+    if (model.includes("gemini") && model.includes("image")) {
+      body.modalities = ["image", "text"];
+    }
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -86,16 +110,7 @@ RESULTADO:
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: "google/gemini-3.1-flash-image-preview",
-        messages: [
-          {
-            role: "user",
-            content: augmentedContent,
-          },
-        ],
-        modalities: ["image", "text"],
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -139,4 +154,3 @@ RESULTADO:
     });
   }
 });
-
