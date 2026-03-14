@@ -423,8 +423,9 @@ export async function replaceLayerInComposition({
 
 /**
  * Smart handler para edição com imagem de referência.
- * Mantém parsing e logs de debug, mas prioriza novamente o fluxo via IA
- * para restaurar o comportamento anterior de edição sequencial.
+ * FLUXO PRINCIPAL: composição por layers (append/replace/transform).
+ * FALLBACK: IA (refineImage / refineImageWithReplaceContext) somente quando
+ * não há composição rastreada ou layer compatível.
  */
 export async function handleReferenceImageEdit({
   compositionBaseImage,
@@ -448,13 +449,14 @@ export async function handleReferenceImageEdit({
   imageUrl: string;
   layers: ObjectLayer[];
   compositionBaseImage: string | null;
-  action: "replaced_layer" | "added_layer" | "ai_edit";
+  action: "replaced_layer" | "added_layer" | "transformed_layer" | "ai_fallback";
   targetLabel?: string;
   debug: ReferenceEditDebugInfo;
 }> {
   const effectiveRequestId = requestId || createImageEditRequestId();
   const intentResult = parseReferenceIntent(instruction, existingLayers);
   const hasCompatibleLayer = intentResult.matchedLayerIndex >= 0;
+  const hasTrackedComposition = Boolean(compositionBaseImage) && existingLayers.length > 0;
   const inputTrace = createImageTraceSnapshot(currentImage);
 
   logDebug("handleReferenceImageEdit:start", {
@@ -463,92 +465,211 @@ export async function handleReferenceImageEdit({
     detectedIntent: intentResult.intent,
     targetLabel: intentResult.targetLabel,
     hasCompatibleLayer,
+    hasTrackedComposition,
     matchedLayerIndex: intentResult.matchedLayerIndex,
     forceReplaceMode,
     inputImageHash: inputTrace.hash,
     inputImageLength: inputTrace.length,
-    inputImagePreview: inputTrace.preview,
     currentImageId: toImageDebugId(currentImage),
     compositionBaseImageId: toImageDebugId(compositionBaseImage),
     referenceImageId: toImageDebugId(referenceImage),
     existingLayerLabels: existingLayers.map((layer) => layer.label),
   });
 
-  let imageUrl = "";
-  let executedPath: ReferenceEditPath = "refineImageFallback";
-  let diagnostics: NoOpDiagnostics | null = null;
-
-  if (intentResult.intent === "replace") {
-    const firstPass = await refineImage(currentImage, instruction, referenceImage, llmProvider, {
+  // ─── PATH 1: LAYER-BASED REPLACE (primary when tracked composition + compatible layer) ───
+  if (
+    (intentResult.intent === "replace" || forceReplaceMode) &&
+    hasCompatibleLayer &&
+    hasTrackedComposition
+  ) {
+    logDebug("handleReferenceImageEdit:path", {
       requestId: effectiveRequestId,
-      operation: "replace:first_pass",
+      branch: "replaceLayerInComposition",
     });
-    imageUrl = firstPass.imageUrl;
-    diagnostics = await detectNoOpEdit(currentImage, imageUrl);
 
-    if (diagnostics.noOpDetected) {
-      logDebug("handleReferenceImageEdit:replaceNoOpRetry", {
-        requestId: effectiveRequestId,
-        branchExecutado: executedPath,
-        inputImageHash: diagnostics.input.hash,
-        outputImageHash: diagnostics.output.hash,
-        sameUrl: diagnostics.sameUrl,
-        sameHash: diagnostics.sameHash,
-        sameLength: diagnostics.sameLength,
-        differenceRatio: diagnostics.differenceRatio,
-        threshold: NO_OP_DIFF_THRESHOLD,
+    const result = await replaceLayerInComposition({
+      compositionBaseImage: compositionBaseImage!,
+      existingLayers,
+      referenceImage,
+      instruction,
+      targetLayerIndex: intentResult.matchedLayerIndex,
+    });
+
+    const outputTrace = createImageTraceSnapshot(result.imageUrl);
+    const debug = buildDebugInfo({
+      effectiveRequestId, instruction, intentResult, hasCompatibleLayer,
+      forceReplaceMode, inputTrace, compositionBaseImage, referenceImage,
+      outputTrace, executedPath: "replaceLayerInComposition",
+    });
+
+    logDebug("handleReferenceImageEdit:done", debugSummary(debug));
+
+    return {
+      imageUrl: result.imageUrl,
+      layers: result.layers,
+      compositionBaseImage: result.compositionBaseImage,
+      action: "replaced_layer",
+      targetLabel: intentResult.targetLabel || result.replacedLayer.label,
+      debug,
+    };
+  }
+
+  // ─── PATH 2: LAYER-BASED ADD (primary when intent=add and tracked composition) ───
+  if (intentResult.intent === "add" && hasTrackedComposition) {
+    logDebug("handleReferenceImageEdit:path", {
+      requestId: effectiveRequestId,
+      branch: "appendReferenceObjectToComposition",
+    });
+
+    const result = await appendReferenceObjectToComposition({
+      compositionBaseImage: compositionBaseImage!,
+      existingLayers,
+      referenceImage,
+      instruction,
+    });
+
+    const outputTrace = createImageTraceSnapshot(result.imageUrl);
+    const debug = buildDebugInfo({
+      effectiveRequestId, instruction, intentResult, hasCompatibleLayer,
+      forceReplaceMode, inputTrace, compositionBaseImage, referenceImage,
+      outputTrace, executedPath: "appendReferenceObjectToComposition",
+    });
+
+    logDebug("handleReferenceImageEdit:done", debugSummary(debug));
+
+    return {
+      imageUrl: result.imageUrl,
+      layers: result.layers,
+      compositionBaseImage: result.compositionBaseImage,
+      action: "added_layer",
+      targetLabel: intentResult.targetLabel || result.addedLayer.label,
+      debug,
+    };
+  }
+
+  // ─── PATH 3: LAYER-BASED TRANSFORM (resize/move via parseObjectTransformPrompt) ───
+  if (intentResult.intent === "transform" && hasCompatibleLayer && hasTrackedComposition) {
+    logDebug("handleReferenceImageEdit:path", {
+      requestId: effectiveRequestId,
+      branch: "transformLayerInComposition",
+    });
+
+    const { parseObjectTransformPrompt, applyObjectTransformCommand, composeImageFromLayers: recompose } = await import("@/lib/object-composition");
+    const command = parseObjectTransformPrompt(instruction, existingLayers);
+
+    if (command) {
+      const { layers: updatedLayers } = applyObjectTransformCommand(existingLayers, command);
+      const imageUrl = await recompose(compositionBaseImage!, updatedLayers);
+
+      const outputTrace = createImageTraceSnapshot(imageUrl);
+      const debug = buildDebugInfo({
+        effectiveRequestId, instruction, intentResult, hasCompatibleLayer,
+        forceReplaceMode, inputTrace, compositionBaseImage, referenceImage,
+        outputTrace, executedPath: "transformLayerInComposition",
       });
 
-      const retry = await refineImageWithReplaceContext(
-        currentImage,
-        referenceImage,
-        instruction,
-        llmProvider,
-        intentResult.targetLabel,
-        effectiveRequestId
-      );
+      logDebug("handleReferenceImageEdit:done", debugSummary(debug));
 
-      imageUrl = retry.imageUrl;
-      executedPath = "refineImageWithReplaceContext";
-      diagnostics = await detectNoOpEdit(currentImage, imageUrl);
+      return {
+        imageUrl,
+        layers: updatedLayers,
+        compositionBaseImage: compositionBaseImage!,
+        action: "transformed_layer",
+        targetLabel: intentResult.targetLabel,
+        debug,
+      };
     }
+    // If parseObjectTransformPrompt returned null, fall through to AI fallback
+  }
+
+  // ─── PATH 4: AI FALLBACK (no tracked composition, no compatible layer, or unrecognized transform) ───
+  logDebug("handleReferenceImageEdit:path", {
+    requestId: effectiveRequestId,
+    branch: "ai_fallback",
+    reason: !hasTrackedComposition
+      ? "no_tracked_composition"
+      : !hasCompatibleLayer
+      ? "no_compatible_layer"
+      : "unrecognized_transform",
+  });
+
+  let imageUrl = "";
+  let executedPath: ReferenceEditPath = "refineImageFallback";
+
+  if (intentResult.intent === "replace") {
+    // Try replace-context first for better results
+    const result = await refineImageWithReplaceContext(
+      currentImage,
+      referenceImage,
+      instruction,
+      llmProvider,
+      intentResult.targetLabel,
+      effectiveRequestId
+    );
+    imageUrl = result.imageUrl;
+    executedPath = "refineImageWithReplaceContext";
   } else {
-    const refined = await refineImage(currentImage, instruction, referenceImage, llmProvider, {
+    const result = await refineImage(currentImage, instruction, referenceImage, llmProvider, {
       requestId: effectiveRequestId,
-      operation: "add_or_transform",
+      operation: "ai_fallback",
     });
-    imageUrl = refined.imageUrl;
-    diagnostics = await detectNoOpEdit(currentImage, imageUrl);
+    imageUrl = result.imageUrl;
+    executedPath = "refineImageFallback";
   }
 
-  if (!diagnostics) {
-    diagnostics = await detectNoOpEdit(currentImage, imageUrl);
-  }
-
+  // No-op detection for AI fallback
+  const diagnostics = await detectNoOpEdit(currentImage, imageUrl);
   if (diagnostics.noOpDetected) {
     logDebug("handleReferenceImageEdit:noOpDetected", {
       requestId: effectiveRequestId,
       branchExecutado: executedPath,
-      detectedIntent: intentResult.intent,
-      targetLabel: intentResult.targetLabel,
       inputImageHash: diagnostics.input.hash,
       outputImageHash: diagnostics.output.hash,
-      inputImageLength: diagnostics.input.length,
-      outputImageLength: diagnostics.output.length,
-      inputImagePreview: diagnostics.input.preview,
-      outputImagePreview: diagnostics.output.preview,
-      sameUrl: diagnostics.sameUrl,
-      sameHash: diagnostics.sameHash,
-      sameLength: diagnostics.sameLength,
       differenceRatio: diagnostics.differenceRatio,
-      noOpDetected: diagnostics.noOpDetected,
     });
-
     throw new Error("edição não executada: saída idêntica à entrada");
   }
 
   const outputTrace = diagnostics.output;
-  const debug: ReferenceEditDebugInfo = {
+  const debug = buildDebugInfo({
+    effectiveRequestId, instruction, intentResult, hasCompatibleLayer,
+    forceReplaceMode, inputTrace, compositionBaseImage, referenceImage,
+    outputTrace, executedPath, differenceRatio: diagnostics.differenceRatio,
+    noOpDetected: diagnostics.noOpDetected,
+  });
+
+  logDebug("handleReferenceImageEdit:done", debugSummary(debug));
+
+  // AI fallback: preserve existing layers, don't zero them out
+  return {
+    imageUrl,
+    layers: existingLayers,
+    compositionBaseImage: compositionBaseImage || imageUrl,
+    action: "ai_fallback",
+    targetLabel: intentResult.targetLabel,
+    debug,
+  };
+}
+
+function buildDebugInfo({
+  effectiveRequestId, instruction, intentResult, hasCompatibleLayer,
+  forceReplaceMode, inputTrace, compositionBaseImage, referenceImage,
+  outputTrace, executedPath, differenceRatio, noOpDetected,
+}: {
+  effectiveRequestId: string;
+  instruction: string;
+  intentResult: { intent: ReferenceIntent; targetLabel?: string; matchedLayerIndex: number };
+  hasCompatibleLayer: boolean;
+  forceReplaceMode: boolean;
+  inputTrace: ImageTraceSnapshot;
+  compositionBaseImage: string | null;
+  referenceImage: string;
+  outputTrace: ImageTraceSnapshot;
+  executedPath: ReferenceEditPath;
+  differenceRatio?: number;
+  noOpDetected?: boolean;
+}): ReferenceEditDebugInfo {
+  return {
     requestId: effectiveRequestId,
     timestamp: new Date().toISOString(),
     instruction,
@@ -566,11 +687,13 @@ export async function handleReferenceImageEdit({
     outputImageHash: outputTrace.hash,
     inputImageLength: inputTrace.length,
     outputImageLength: outputTrace.length,
-    differenceRatio: diagnostics.differenceRatio,
-    noOpDetected: diagnostics.noOpDetected,
+    differenceRatio,
+    noOpDetected,
   };
+}
 
-  logDebug("handleReferenceImageEdit:done", {
+function debugSummary(debug: ReferenceEditDebugInfo): Record<string, unknown> {
+  return {
     requestId: debug.requestId,
     detectedIntent: debug.detectedIntent,
     targetLabel: debug.targetLabel,
@@ -579,15 +702,6 @@ export async function handleReferenceImageEdit({
     outputImageHash: debug.outputImageHash,
     differenceRatio: debug.differenceRatio,
     noOpDetected: debug.noOpDetected,
-  });
-
-  return {
-    imageUrl,
-    layers: [],
-    compositionBaseImage: imageUrl,
-    action: "ai_edit",
-    targetLabel: intentResult.targetLabel,
-    debug,
   };
 }
 
