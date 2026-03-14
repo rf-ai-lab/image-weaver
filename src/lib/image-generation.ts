@@ -72,7 +72,26 @@ export type ReferenceEditPath =
   | "appendReferenceObjectToComposition"
   | "refineImageFallback";
 
+interface ImageTraceSnapshot {
+  hash: string;
+  length: number;
+  preview: string;
+  identifier: string;
+}
+
+interface NoOpDiagnostics {
+  input: ImageTraceSnapshot;
+  output: ImageTraceSnapshot;
+  sameUrl: boolean;
+  sameHash: boolean;
+  sameLength: boolean;
+  differenceRatio: number;
+  noOpDetected: boolean;
+}
+
 export interface ReferenceEditDebugInfo {
+  requestId: string;
+  timestamp: string;
   instruction: string;
   detectedIntent: ReferenceIntent;
   targetLabel?: string;
@@ -84,6 +103,10 @@ export interface ReferenceEditDebugInfo {
   inputCurrentImageId: string;
   inputReferenceImageId: string;
   outputImageId: string;
+  inputImageHash: string;
+  outputImageHash: string;
+  inputImageLength: number;
+  outputImageLength: number;
   differenceRatio?: number;
   noOpDetected?: boolean;
 }
@@ -97,21 +120,49 @@ function createStableHash(value: string): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-function toImageDebugId(image: string | null | undefined): string {
-  if (!image) return "null";
-
-  if (image.startsWith("data:")) {
-    const headerEnd = image.indexOf(",");
-    const header = headerEnd > -1 ? image.slice(0, headerEnd) : "data";
-    const sample = image.slice(Math.max(0, image.length - 2048));
-    return `data:${header};len=${image.length};hash=${createStableHash(sample)}`;
-  }
-
-  return `url:${image}`;
+function buildImagePreview(value: string): string {
+  if (!value) return "";
+  if (value.length <= 48) return value;
+  return `${value.slice(0, 24)}...${value.slice(-24)}`;
 }
 
-function logDebug(event: string, payload: unknown) {
-  console.info(`${DEBUG_PREFIX} ${event}`, payload);
+function createImageTraceSnapshot(image: string | null | undefined): ImageTraceSnapshot {
+  if (!image) {
+    return {
+      hash: "null",
+      length: 0,
+      preview: "null",
+      identifier: "null",
+    };
+  }
+
+  const sample = image.startsWith("data:") ? image.slice(Math.max(0, image.length - 4096)) : image;
+  const hash = createStableHash(sample);
+  const identifier = image.startsWith("data:")
+    ? `data:${image.slice(0, Math.min(32, image.length))};len=${image.length};hash=${hash}`
+    : `url:${buildImagePreview(image)};len=${image.length};hash=${hash}`;
+
+  return {
+    hash,
+    length: image.length,
+    preview: buildImagePreview(image),
+    identifier,
+  };
+}
+
+function toImageDebugId(image: string | null | undefined): string {
+  return createImageTraceSnapshot(image).identifier;
+}
+
+export function createImageEditRequestId(): string {
+  return crypto.randomUUID();
+}
+
+function logDebug(event: string, payload: Record<string, unknown>) {
+  console.info(`${DEBUG_PREFIX} ${event}`, {
+    timestamp: new Date().toISOString(),
+    ...payload,
+  });
 }
 
 async function loadImageForDiff(source: string): Promise<HTMLImageElement> {
@@ -167,11 +218,26 @@ async function computeImageDifferenceRatio(beforeImage: string, afterImage: stri
   return diffSum / (width * height * 3 * 255);
 }
 
-async function detectNoOpEdit(beforeImage: string, afterImage: string): Promise<{ differenceRatio: number; noOp: boolean }> {
-  const differenceRatio = await computeImageDifferenceRatio(beforeImage, afterImage);
+async function detectNoOpEdit(beforeImage: string, afterImage: string): Promise<NoOpDiagnostics> {
+  const [differenceRatio, input, output] = await Promise.all([
+    computeImageDifferenceRatio(beforeImage, afterImage),
+    Promise.resolve(createImageTraceSnapshot(beforeImage)),
+    Promise.resolve(createImageTraceSnapshot(afterImage)),
+  ]);
+
+  const sameUrl = beforeImage === afterImage;
+  const sameHash = input.hash === output.hash;
+  const sameLength = input.length === output.length;
+  const noOpDetected = sameUrl || (sameHash && sameLength) || differenceRatio <= NO_OP_DIFF_THRESHOLD;
+
   return {
+    input,
+    output,
+    sameUrl,
+    sameHash,
+    sameLength,
     differenceRatio,
-    noOp: differenceRatio <= NO_OP_DIFF_THRESHOLD,
+    noOpDetected,
   };
 }
 
