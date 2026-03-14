@@ -89,7 +89,14 @@ const Editor = () => {
 
     setIsGenerating(true);
     try {
-      const imageToSend = annotatedImage || currentImage;
+      // Always use the last generated image as the base for image-to-image editing.
+      // If user annotated, use that (it's based on the current view). Otherwise use the latest version.
+      const imageToSend = annotatedImage || lastGeneratedImage || currentImage;
+      if (!imageToSend) {
+        toast.error("Nenhuma imagem base encontrada.");
+        setIsGenerating(false);
+        return;
+      }
       const { imageUrl, usedFallback } = await generateImageWithFallback({
         image: imageToSend,
         prompt: prompt.trim(),

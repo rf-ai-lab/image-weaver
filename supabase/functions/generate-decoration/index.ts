@@ -180,8 +180,8 @@ serve(async (req) => {
         input: {
           image,
           prompt: optimizedPrompt,
-          num_inference_steps: 50,
-          image_guidance_scale: 1.5,
+          num_inference_steps: 30,
+          image_guidance_scale: 1.2,
           guidance_scale: 7.5,
         },
       }),
