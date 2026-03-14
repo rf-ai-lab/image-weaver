@@ -170,6 +170,14 @@ export function parseReferenceIntent(
 
   const hasReplaceKeyword = REPLACE_KEYWORDS.some((kw) => normalized.includes(kw));
 
+  const TRANSFORM_KEYWORDS = [
+    "reduz", "diminu", "encolh", "aument", "maior", "menor",
+    "mova", "move", "desloc", "suba", "abaix", "centraliz",
+    "reposicion", "aproxim", "afast", "gir", "rot",
+    "metade", "dobr", "ampli",
+  ];
+  const hasTransformKeyword = TRANSFORM_KEYWORDS.some((kw) => normalized.includes(kw));
+
   const inferredLabel = inferObjectLabel(instruction, 0);
 
   const matchedIndex = [...existingLayers]
@@ -186,6 +194,15 @@ export function parseReferenceIntent(
     return {
       intent: "replace",
       targetLabel: inferredLabel !== `objeto_0` ? inferredLabel : undefined,
+      matchedLayerIndex: matchedIndex,
+    };
+  }
+
+  // Transform intent: resize/move/reposition commands targeting an existing layer
+  if (hasTransformKeyword && matchedIndex >= 0) {
+    return {
+      intent: "transform",
+      targetLabel: inferredLabel,
       matchedLayerIndex: matchedIndex,
     };
   }
