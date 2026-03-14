@@ -189,6 +189,11 @@ RESULTADO:
       throw new Error("Nenhuma imagem foi gerada pela IA");
     }
 
+    console.log("[ReferenceEditDebug][edit-image] response", {
+      imageUrlPreview: typeof imageUrl === "string" ? imageUrl.slice(0, 180) : "",
+      hasTextResponse: Boolean(textResponse),
+    });
+
     return new Response(JSON.stringify({ imageUrl, text: textResponse }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
