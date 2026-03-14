@@ -114,7 +114,7 @@ async function optimizePrompt(instruction: string, provider: LlmProvider): Promi
 async function pollPrediction(id: string, token: string, maxAttempts = 60): Promise<any> {
   for (let i = 0; i < maxAttempts; i++) {
     const res = await fetch(`${REPLICATE_API}/predictions/${id}`, {
-      headers: { Authorization: `Token ${token}` },
+      headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
 
@@ -141,7 +141,10 @@ serve(async (req) => {
   }
 
   try {
-    const REPLICATE_API_TOKEN = normalizeReplicateToken(Deno.env.get("REPLICATE_API_TOKEN"));
+    const rawToken = Deno.env.get("REPLICATE_API_TOKEN");
+    console.log(`[DEBUG] REPLICATE_API_TOKEN raw length: ${rawToken?.length ?? 'undefined'}, first 8 chars: ${rawToken?.substring(0, 8) ?? 'N/A'}`);
+    const REPLICATE_API_TOKEN = normalizeReplicateToken(rawToken);
+    console.log(`[DEBUG] REPLICATE_API_TOKEN normalized length: ${REPLICATE_API_TOKEN.length}, first 8 chars: ${REPLICATE_API_TOKEN.substring(0, 8)}`);
     if (!REPLICATE_API_TOKEN) {
       throw new Error("REPLICATE_API_TOKEN não está configurado ou está vazio.");
     }
@@ -169,7 +172,7 @@ serve(async (req) => {
     const createRes = await fetch(`${REPLICATE_API}/models/timothybrooks/instruct-pix2pix/predictions`, {
       method: "POST",
       headers: {
-        Authorization: `Token ${REPLICATE_API_TOKEN}`,
+        Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
