@@ -79,7 +79,23 @@ RESULTADO:
 
     const augmentedContent = [systemPrompt, ...content];
 
-    console.log(`Calling AI gateway with ${selectedModel}...`);
+    const isGeminiImageModel = selectedModel.includes("image");
+    console.log(`Calling AI gateway with ${selectedModel} (image model: ${isGeminiImageModel})...`);
+
+    const requestBody: Record<string, unknown> = {
+      model: selectedModel,
+      messages: [
+        {
+          role: "user",
+          content: augmentedContent,
+        },
+      ],
+    };
+
+    // Only Gemini image models support the modalities parameter
+    if (isGeminiImageModel) {
+      requestBody.modalities = ["image", "text"];
+    }
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -87,16 +103,7 @@ RESULTADO:
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: selectedModel,
-        messages: [
-          {
-            role: "user",
-            content: augmentedContent,
-          },
-        ],
-        modalities: ["image", "text"],
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
