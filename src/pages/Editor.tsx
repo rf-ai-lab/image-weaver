@@ -4,20 +4,9 @@ import VersionHistory from "@/components/VersionHistory";
 import DrawingOverlay from "@/components/DrawingOverlay";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
-import { generateImageWithFallback } from "@/lib/image-generation";
-
-type LlmProvider = "openai" | "claude" | "gemini";
-
-const SCENE_RECONSTRUCTION_INTERVAL = 3;
+import { generateImage } from "@/lib/image-generation";
 
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -37,15 +26,9 @@ const Editor = () => {
     setCurrentVersion,
     isGenerating,
     setIsGenerating,
-    currentSceneDescription,
-    setCurrentSceneDescription,
-    editCount,
-    incrementEditCount,
-    resetEditCount,
   } = useImageEditor();
 
   const [prompt, setPrompt] = useState("");
-  const [llmProvider, setLlmProvider] = useState<LlmProvider>("openai");
   const [isAnnotating, setIsAnnotating] = useState(false);
   const [annotatedImage, setAnnotatedImage] = useState<string | null>(null);
   const [attachedImages, setAttachedImages] = useState<{ name: string; data: string }[]>([]);
@@ -60,10 +43,8 @@ const Editor = () => {
     selectedSetupImageIndex !== null ? setupImages[selectedSetupImageIndex]?.imageData ?? null : null;
   const currentImage = selectedSetupImage || versionImage;
 
-  // Always use the latest version as base for next generation
+  // Always use the LAST generated version as base for the next generation
   const lastGeneratedImage = versions.length > 0 ? versions[versions.length - 1].imageData : null;
-  // Get the original primary image for scene reconstruction
-  const primaryImage = rows.find((r) => r.isPrimary)?.imageData || null;
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
@@ -83,7 +64,10 @@ const Editor = () => {
 
   const handleRefine = async () => {
     if (!prompt.trim()) return;
-    if (!currentImage && !lastGeneratedImage) {
+
+    // The image base is: annotated image > last generated version > current view
+    const imageToSend = annotatedImage || lastGeneratedImage || currentImage;
+    if (!imageToSend) {
       toast.error("Nenhuma imagem para editar. Gere a primeira versão.");
       return;
     }
@@ -98,47 +82,17 @@ const Editor = () => {
 
     setIsGenerating(true);
     try {
-      // Determine if we need scene reconstruction (every N edits)
-      const needsReconstruction =
-        editCount > 0 && editCount % SCENE_RECONSTRUCTION_INTERVAL === 0 && primaryImage;
-
-      // Image to send: annotated > last generated > current view
-      const imageToSend = annotatedImage || lastGeneratedImage || currentImage;
-      if (!imageToSend) {
-        toast.error("Nenhuma imagem base encontrada.");
-        setIsGenerating(false);
-        return;
-      }
-
-      if (needsReconstruction) {
-        console.log(`Scene reconstruction triggered (edit #${editCount}). Using original image as base.`);
-        toast.info("Reconstruindo cena para manter qualidade...");
-      }
-
-      const { imageUrl, usedFallback, updatedSceneDescription } = await generateImageWithFallback({
-        image: needsReconstruction ? primaryImage! : imageToSend,
+      const { imageUrl, usedFallback } = await generateImage({
+        image: imageToSend,
         prompt: prompt.trim(),
-        sceneDescription: currentSceneDescription,
-        llmProvider,
-        forceTextToImage: !!needsReconstruction,
       });
 
-      // Update scene description
-      if (updatedSceneDescription) {
-        setCurrentSceneDescription(updatedSceneDescription);
-      }
-
       addVersion(imageUrl, prompt);
-      incrementEditCount();
-
-      if (needsReconstruction) {
-        resetEditCount();
-      }
-
       setSelectedSetupImageIndex(null);
       setPrompt("");
       setAnnotatedImage(null);
       setAttachedImages([]);
+
       if (usedFallback) {
         toast.info("Sem créditos no provedor atual: usamos fallback automático.");
       }
@@ -233,13 +187,6 @@ const Editor = () => {
           }
           return caption ? <p className="mt-3 max-w-xl text-center text-sm text-muted-foreground">{caption}</p> : null;
         })()}
-
-        {currentSceneDescription && (
-          <details className="mt-2 max-w-xl">
-            <summary className="cursor-pointer text-xs text-muted-foreground">Descrição da cena atual</summary>
-            <p className="mt-1 rounded bg-muted p-2 text-xs text-muted-foreground">{currentSceneDescription}</p>
-          </details>
-        )}
       </div>
 
       {attachedImages.length > 0 && (
@@ -262,21 +209,7 @@ const Editor = () => {
       )}
 
       <div className="border-t border-border bg-card px-6 py-4">
-        <div className="mx-auto max-w-2xl space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">LLM (teste):</span>
-            <Select value={llmProvider} onValueChange={(v) => setLlmProvider(v as LlmProvider)}>
-              <SelectTrigger className="h-8 w-[130px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="openai">OpenAI</SelectItem>
-                <SelectItem value="claude">Claude</SelectItem>
-                <SelectItem value="gemini">Gemini</SelectItem>
-              </SelectContent>
-            </Select>
-            <span className="text-xs text-muted-foreground">Edição #{editCount}</span>
-          </div>
+        <div className="mx-auto max-w-2xl">
           <div className="flex items-end gap-2">
             <Button variant="outline" size="icon" onClick={() => { setSelectedSetupImageIndex(null); undoVersion(); }} disabled={currentVersionIndex <= 0} title="Desfazer">
               <Undo2 className="h-4 w-4" />

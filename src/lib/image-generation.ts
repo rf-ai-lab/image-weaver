@@ -1,13 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 
-type LlmProvider = "openai" | "claude" | "gemini";
-
 type GenerateImageParams = {
   image: string;
   prompt: string;
-  sceneDescription?: string;
-  llmProvider?: LlmProvider;
-  forceTextToImage?: boolean;
 };
 
 type FunctionInvokeError = {
@@ -22,7 +17,6 @@ type FunctionInvokeError = {
 export type GenerateImageResult = {
   imageUrl: string;
   usedFallback: boolean;
-  updatedSceneDescription?: string;
 };
 
 const BILLING_ERROR_REGEX = /insufficient credit|créditos insuficientes/i;
@@ -57,30 +51,21 @@ function isBillingError(status?: number, message?: string) {
   return status === 402 || BILLING_ERROR_REGEX.test(message || "");
 }
 
-export async function generateImageWithFallback({
+export async function generateImage({
   image,
   prompt,
-  sceneDescription,
-  llmProvider = "openai",
-  forceTextToImage = false,
 }: GenerateImageParams): Promise<GenerateImageResult> {
+  if (!image) throw new Error("Imagem base é obrigatória.");
+  if (!prompt) throw new Error("Prompt é obrigatório.");
+
+  // Try generate-decoration (Replicate instruct-pix2pix)
   const { data, error } = await supabase.functions.invoke("generate-decoration", {
-    body: {
-      image,
-      prompt,
-      scene_description: sceneDescription || "",
-      llm_provider: llmProvider,
-      force_text_to_image: forceTextToImage,
-    },
+    body: { image, prompt },
   });
 
   if (!error) {
     if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada.");
-    return {
-      imageUrl: data.imageUrl,
-      usedFallback: false,
-      updatedSceneDescription: data.updatedSceneDescription,
-    };
+    return { imageUrl: data.imageUrl, usedFallback: false };
   }
 
   const parsedError = await parseInvokeError(error as FunctionInvokeError);
@@ -88,15 +73,10 @@ export async function generateImageWithFallback({
     throw new Error(parsedError.message || "Erro ao gerar imagem.");
   }
 
-  // Fallback to edit-image (Gemini)
+  // Fallback to edit-image (Gemini) on billing error
   const fallbackContent = [
     { type: "image_url", image_url: { url: image } },
-    {
-      type: "text",
-      text: sceneDescription
-        ? `Current scene: ${sceneDescription}\n\nNew instruction: ${prompt}`
-        : prompt,
-    },
+    { type: "text", text: prompt },
   ];
 
   const { data: fallbackData, error: fallbackError } = await supabase.functions.invoke("edit-image", {
@@ -105,16 +85,12 @@ export async function generateImageWithFallback({
 
   if (fallbackError) {
     const parsedFallbackError = await parseInvokeError(fallbackError as FunctionInvokeError);
-    throw new Error(parsedFallbackError.message || "Sem créditos no provedor atual e o fallback também falhou.");
+    throw new Error(parsedFallbackError.message || "Sem créditos e o fallback também falhou.");
   }
 
   if (!fallbackData?.imageUrl) {
     throw new Error("Nenhuma imagem retornada no fallback.");
   }
 
-  return {
-    imageUrl: fallbackData.imageUrl,
-    usedFallback: true,
-    updatedSceneDescription: sceneDescription,
-  };
+  return { imageUrl: fallbackData.imageUrl, usedFallback: true };
 }

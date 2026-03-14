@@ -28,8 +28,6 @@ interface ImageEditorContextType {
   isGenerating: boolean;
   activeProjectId: string | null;
   projects: Project[];
-  currentSceneDescription: string;
-  editCount: number;
   addRow: () => void;
   removeRow: (id: string) => void;
   updateRow: (id: string, updates: Partial<Omit<ImageRow, "id">>) => void;
@@ -39,9 +37,6 @@ interface ImageEditorContextType {
   setCurrentVersion: (index: number) => void;
   undoVersion: () => void;
   setIsGenerating: (v: boolean) => void;
-  setCurrentSceneDescription: (desc: string) => void;
-  incrementEditCount: () => void;
-  resetEditCount: () => void;
   createProject: (name: string) => void;
   deleteProject: (id: string) => void;
   loadProject: (id: string) => void;
@@ -50,12 +45,6 @@ interface ImageEditorContextType {
 const ImageEditorContext = createContext<ImageEditorContextType | null>(null);
 
 let rowCounter = 1;
-const makeRow = (): ImageRow => ({
-  id: crypto.randomUUID(),
-  imageData: null,
-  instructions: "",
-  isPrimary: rowCounter++ === 1,
-});
 
 const makeFirstRow = (): ImageRow => ({
   id: crypto.randomUUID(),
@@ -71,11 +60,6 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [versions, setVersions] = useState<ImageVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [currentSceneDescription, setCurrentSceneDescription] = useState("");
-  const [editCount, setEditCount] = useState(0);
-
-  const incrementEditCount = useCallback(() => setEditCount((c) => c + 1), []);
-  const resetEditCount = useCallback(() => setEditCount(0), []);
 
   const saveCurrentToProject = useCallback(() => {
     if (!activeProjectId) return;
@@ -89,7 +73,6 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
   }, [activeProjectId, rows, versions, currentVersionIndex]);
 
   const createProject = useCallback((name: string) => {
-    // Save current project first
     if (activeProjectId) {
       setProjects((prev) =>
         prev.map((p) =>
@@ -125,7 +108,6 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
   }, [activeProjectId]);
 
   const loadProject = useCallback((id: string) => {
-    // Save current first
     if (activeProjectId) {
       setProjects((prev) =>
         prev.map((p) =>
@@ -207,8 +189,6 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         isGenerating,
         activeProjectId,
         projects,
-        currentSceneDescription,
-        editCount,
         addRow,
         removeRow,
         updateRow,
@@ -218,9 +198,6 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         setCurrentVersion,
         undoVersion,
         setIsGenerating,
-        setCurrentSceneDescription,
-        incrementEditCount,
-        resetEditCount,
         createProject,
         deleteProject,
         loadProject,
