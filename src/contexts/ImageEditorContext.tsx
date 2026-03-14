@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useCallback, useContext, useState } from "react";
+import type { ObjectLayer } from "@/lib/object-composition";
 
 export interface ImageRow {
   id: string;
@@ -11,6 +12,8 @@ export interface ImageVersion {
   label: string;
   imageData: string;
   prompt?: string;
+  objectLayers?: ObjectLayer[];
+  compositionBaseImage?: string | null;
 }
 
 export interface Project {
@@ -32,7 +35,11 @@ interface ImageEditorContextType {
   removeRow: (id: string) => void;
   updateRow: (id: string, updates: Partial<Omit<ImageRow, "id">>) => void;
   setPrimary: (id: string) => void;
-  addVersion: (imageData: string, prompt?: string) => void;
+  addVersion: (
+    imageData: string,
+    prompt?: string,
+    metadata?: { objectLayers?: ObjectLayer[]; compositionBaseImage?: string | null }
+  ) => void;
   deleteVersion: (index: number) => void;
   setCurrentVersion: (index: number) => void;
   undoVersion: () => void;
@@ -43,8 +50,6 @@ interface ImageEditorContextType {
 }
 
 const ImageEditorContext = createContext<ImageEditorContextType | null>(null);
-
-let rowCounter = 1;
 
 const makeFirstRow = (): ImageRow => ({
   id: crypto.randomUUID(),
@@ -61,73 +66,74 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const saveCurrentToProject = useCallback(() => {
-    if (!activeProjectId) return;
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === activeProjectId
-          ? { ...p, rows, versions, currentVersionIndex }
-          : p
-      )
-    );
-  }, [activeProjectId, rows, versions, currentVersionIndex]);
+  const createProject = useCallback(
+    (name: string) => {
+      if (activeProjectId) {
+        setProjects((prev) =>
+          prev.map((p) =>
+            p.id === activeProjectId
+              ? { ...p, rows, versions, currentVersionIndex }
+              : p
+          )
+        );
+      }
 
-  const createProject = useCallback((name: string) => {
-    if (activeProjectId) {
-      setProjects((prev) =>
-        prev.map((p) =>
-          p.id === activeProjectId
-            ? { ...p, rows, versions, currentVersionIndex }
-            : p
-        )
-      );
-    }
-    const newRow = makeFirstRow();
-    const newProject: Project = {
-      id: crypto.randomUUID(),
-      name,
-      rows: [newRow],
-      versions: [],
-      currentVersionIndex: -1,
-    };
-    setProjects((prev) => [...prev, newProject]);
-    setActiveProjectId(newProject.id);
-    setRows([newRow]);
-    setVersions([]);
-    setCurrentVersionIndex(-1);
-  }, [activeProjectId, rows, versions, currentVersionIndex]);
+      const newRow = makeFirstRow();
+      const newProject: Project = {
+        id: crypto.randomUUID(),
+        name,
+        rows: [newRow],
+        versions: [],
+        currentVersionIndex: -1,
+      };
 
-  const deleteProject = useCallback((id: string) => {
-    setProjects((prev) => prev.filter((p) => p.id !== id));
-    if (activeProjectId === id) {
-      setActiveProjectId(null);
-      setRows([makeFirstRow()]);
+      setProjects((prev) => [...prev, newProject]);
+      setActiveProjectId(newProject.id);
+      setRows([newRow]);
       setVersions([]);
       setCurrentVersionIndex(-1);
-    }
-  }, [activeProjectId]);
+    },
+    [activeProjectId, rows, versions, currentVersionIndex]
+  );
 
-  const loadProject = useCallback((id: string) => {
-    if (activeProjectId) {
-      setProjects((prev) =>
-        prev.map((p) =>
-          p.id === activeProjectId
-            ? { ...p, rows, versions, currentVersionIndex }
-            : p
-        )
-      );
-    }
-    setProjects((prev) => {
-      const target = prev.find((p) => p.id === id);
-      if (target) {
-        setRows(target.rows);
-        setVersions(target.versions);
-        setCurrentVersionIndex(target.currentVersionIndex);
-        setActiveProjectId(id);
+  const deleteProject = useCallback(
+    (id: string) => {
+      setProjects((prev) => prev.filter((p) => p.id !== id));
+      if (activeProjectId === id) {
+        setActiveProjectId(null);
+        setRows([makeFirstRow()]);
+        setVersions([]);
+        setCurrentVersionIndex(-1);
       }
-      return prev;
-    });
-  }, [activeProjectId, rows, versions, currentVersionIndex]);
+    },
+    [activeProjectId]
+  );
+
+  const loadProject = useCallback(
+    (id: string) => {
+      if (activeProjectId) {
+        setProjects((prev) =>
+          prev.map((p) =>
+            p.id === activeProjectId
+              ? { ...p, rows, versions, currentVersionIndex }
+              : p
+          )
+        );
+      }
+
+      setProjects((prev) => {
+        const target = prev.find((p) => p.id === id);
+        if (target) {
+          setRows(target.rows);
+          setVersions(target.versions);
+          setCurrentVersionIndex(target.currentVersionIndex);
+          setActiveProjectId(id);
+        }
+        return prev;
+      });
+    },
+    [activeProjectId, rows, versions, currentVersionIndex]
+  );
 
   const addRow = useCallback(() => {
     setRows((prev) => [...prev, { id: crypto.randomUUID(), imageData: null, instructions: "", isPrimary: false }]);
@@ -151,13 +157,29 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setRows((prev) => prev.map((r) => ({ ...r, isPrimary: r.id === id })));
   }, []);
 
-  const addVersion = useCallback((imageData: string, prompt?: string) => {
-    setVersions((prev) => {
-      const next = [...prev, { label: `Versão ${prev.length + 1}`, imageData, prompt }];
-      setCurrentVersionIndex(next.length - 1);
-      return next;
-    });
-  }, []);
+  const addVersion = useCallback(
+    (
+      imageData: string,
+      prompt?: string,
+      metadata?: { objectLayers?: ObjectLayer[]; compositionBaseImage?: string | null }
+    ) => {
+      setVersions((prev) => {
+        const next = [
+          ...prev,
+          {
+            label: `Versão ${prev.length + 1}`,
+            imageData,
+            prompt,
+            objectLayers: metadata?.objectLayers,
+            compositionBaseImage: metadata?.compositionBaseImage,
+          },
+        ];
+        setCurrentVersionIndex(next.length - 1);
+        return next;
+      });
+    },
+    []
+  );
 
   const deleteVersion = useCallback((index: number) => {
     setVersions((prev) => {

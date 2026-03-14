@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useRef, useState } from "react";
 import { useImageEditor } from "@/contexts/ImageEditorContext";
 import VersionHistory from "@/components/VersionHistory";
 import DrawingOverlay from "@/components/DrawingOverlay";
@@ -7,7 +7,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
-import { refineImage } from "@/lib/image-generation";
+import { appendReferenceObjectToComposition, refineImage } from "@/lib/image-generation";
+import {
+  applyObjectTransformCommand,
+  composeImageFromLayers,
+  parseObjectTransformPrompt,
+} from "@/lib/object-composition";
 
 export type LLMProvider = "gemini" | "openai" | "claude";
 
@@ -43,7 +48,11 @@ const Editor = () => {
     selectedSetupImageIndex !== null ? setupImages[selectedSetupImageIndex]?.imageData ?? null : null;
   const currentImage = selectedSetupImage || versionImage;
 
-  const lastGeneratedImage = versions.length > 0 ? versions[versions.length - 1].imageData : null;
+  const latestVersion = versions.length > 0 ? versions[versions.length - 1] : null;
+  const lastGeneratedImage = latestVersion?.imageData ?? null;
+  const latestObjectLayers = latestVersion?.objectLayers ?? [];
+  const primaryImage = rows.find((r) => r.isPrimary)?.imageData ?? null;
+  const compositionBaseImage = latestVersion?.compositionBaseImage ?? primaryImage;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -61,7 +70,8 @@ const Editor = () => {
   };
 
   const handleRefine = async () => {
-    if (!prompt.trim() && !attachedImage) return;
+    const cleanedPrompt = prompt.trim();
+    if (!cleanedPrompt && !attachedImage) return;
 
     const imageToSend = annotatedImage || lastGeneratedImage || currentImage;
     if (!imageToSend) {
@@ -69,7 +79,7 @@ const Editor = () => {
       return;
     }
 
-    if (prompt.toLowerCase().includes("volte para a versão anterior") || prompt.toLowerCase().includes("desfazer")) {
+    if (cleanedPrompt.toLowerCase().includes("volte para a versão anterior") || cleanedPrompt.toLowerCase().includes("desfazer")) {
       setSelectedSetupImageIndex(null);
       undoVersion();
       setPrompt("");
@@ -79,13 +89,63 @@ const Editor = () => {
 
     setIsGenerating(true);
     try {
-      const { imageUrl } = await refineImage(
-        imageToSend,
-        prompt.trim(),
-        attachedImage || undefined,
-        selectedLLM
-      );
-      addVersion(imageUrl, prompt);
+      if (attachedImage) {
+        if (!compositionBaseImage) {
+          throw new Error("Defina uma foto principal para manter a composição fixa antes de anexar novos objetos.");
+        }
+
+        const instruction = cleanedPrompt || "Adicionar novo objeto de referência";
+        const { imageUrl, layers } = await appendReferenceObjectToComposition({
+          compositionBaseImage,
+          existingLayers: latestObjectLayers,
+          referenceImage: attachedImage,
+          instruction,
+        });
+
+        addVersion(imageUrl, instruction, {
+          objectLayers: layers,
+          compositionBaseImage,
+        });
+
+        setSelectedSetupImageIndex(null);
+        setPrompt("");
+        setAnnotatedImage(null);
+        setAttachedImage(null);
+        toast.success("Objeto adicionado com composição local preservando a cena.");
+        return;
+      }
+
+      const parsedTransform = !annotatedImage
+        ? parseObjectTransformPrompt(cleanedPrompt, latestObjectLayers)
+        : null;
+
+      if (parsedTransform && compositionBaseImage && latestObjectLayers.length > 0) {
+        const { layers: updatedLayers, targetLayer } = applyObjectTransformCommand(latestObjectLayers, parsedTransform);
+
+        if (!targetLayer) {
+          throw new Error("Não encontrei o objeto alvo para transformar nesta versão.");
+        }
+
+        const imageUrl = await composeImageFromLayers(compositionBaseImage, updatedLayers);
+
+        addVersion(imageUrl, cleanedPrompt, {
+          objectLayers: updatedLayers,
+          compositionBaseImage,
+        });
+
+        setSelectedSetupImageIndex(null);
+        setPrompt("");
+        setAnnotatedImage(null);
+        setAttachedImage(null);
+        toast.success(`Transformação aplicada no objeto: ${targetLayer.label}.`);
+        return;
+      }
+
+      const { imageUrl } = await refineImage(imageToSend, cleanedPrompt, undefined, selectedLLM);
+      addVersion(imageUrl, cleanedPrompt, {
+        objectLayers: [],
+        compositionBaseImage: imageUrl,
+      });
       setSelectedSetupImageIndex(null);
       setPrompt("");
       setAnnotatedImage(null);
@@ -162,7 +222,7 @@ const Editor = () => {
               Refinamento — envie instruções e/ou imagens de referência para ajustar a composição.
             </p>
             <Select value={selectedLLM} onValueChange={(v) => setSelectedLLM(v as LLMProvider)}>
-              <SelectTrigger className="w-[120px] h-8 text-xs">
+              <SelectTrigger className="h-8 w-[120px] text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -205,7 +265,7 @@ const Editor = () => {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={attachedImage ? "Descreva como usar essa imagem na composição..." : annotatedImage ? "Descreva o que alterar nas áreas marcadas..." : "Ex: mude a cor das flores para rosa, remova o arranjo da esquerda..."}
+              placeholder={attachedImage ? "Descreva como posicionar esse objeto na cena..." : annotatedImage ? "Descreva o que alterar nas áreas marcadas..." : "Ex: reduza o portal pela metade, mova para a direita, centralize..."}
               className="min-h-[44px] max-h-[120px] resize-none text-sm"
               disabled={isGenerating}
             />
@@ -219,8 +279,15 @@ const Editor = () => {
       <VersionHistory
         setupImages={setupImages}
         selectedSetupImageIndex={selectedSetupImageIndex}
-        onSelectSetupImage={(index) => { setSelectedSetupImageIndex(index); setAnnotatedImage(null); }}
-        onSelectVersion={(index) => { setSelectedSetupImageIndex(null); setAnnotatedImage(null); setCurrentVersion(index); }}
+        onSelectSetupImage={(index) => {
+          setSelectedSetupImageIndex(index);
+          setAnnotatedImage(null);
+        }}
+        onSelectVersion={(index) => {
+          setSelectedSetupImageIndex(null);
+          setAnnotatedImage(null);
+          setCurrentVersion(index);
+        }}
       />
     </div>
   );
