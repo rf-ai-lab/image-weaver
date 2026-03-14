@@ -114,6 +114,24 @@ const Editor = () => {
       return;
     }
 
+    const requestId = createImageEditRequestId();
+    const inputTrace = createImageTrace(imageToSend);
+    const referenceTrace = createImageTrace(attachedImage);
+
+    console.info("[ReferenceEditDebug] editor:request", {
+      requestId,
+      timestamp: new Date().toISOString(),
+      instruction: cleanedPrompt,
+      imageToSendHash: inputTrace.hash,
+      imageToSendLength: inputTrace.length,
+      imageToSendPreview: inputTrace.preview,
+      attachedImageHash: referenceTrace.hash,
+      attachedImageLength: referenceTrace.length,
+      attachedImagePreview: referenceTrace.preview,
+      selectedLLM,
+      hasAttachedImage: Boolean(attachedImage),
+    });
+
     setIsGenerating(true);
     try {
       // --- PATH 1: Attached reference image (replace or add) ---
@@ -127,13 +145,25 @@ const Editor = () => {
           instruction,
           currentImage: imageToSend,
           llmProvider: selectedLLM,
+          requestId,
         });
 
-        console.info("[ReferenceEditDebug] Editor result", result.debug);
+        const outputTrace = createImageTrace(result.imageUrl);
+        console.info("[ReferenceEditDebug] editor:result", {
+          requestId,
+          ...result.debug,
+          imageUrlForAddVersionHash: outputTrace.hash,
+          imageUrlForAddVersionLength: outputTrace.length,
+          imageUrlForAddVersionPreview: outputTrace.preview,
+        });
 
         addVersion(result.imageUrl, instruction, {
           objectLayers: result.layers,
           compositionBaseImage: result.compositionBaseImage,
+          requestId,
+          pipelineBranch: result.debug.executedPath,
+          inputImageHash: inputTrace.hash,
+          outputImageHash: outputTrace.hash,
         });
 
         const actionMessage =
@@ -152,10 +182,25 @@ const Editor = () => {
       }
 
       // --- PATH 2: Free-form AI refinement ---
-      const { imageUrl } = await refineImage(imageToSend, cleanedPrompt, undefined, selectedLLM);
+      const { imageUrl } = await refineImage(imageToSend, cleanedPrompt, undefined, selectedLLM, {
+        requestId,
+        operation: "editor:free_form",
+      });
+      const outputTrace = createImageTrace(imageUrl);
+      console.info("[ReferenceEditDebug] editor:freeFormResult", {
+        requestId,
+        inputImageHash: inputTrace.hash,
+        outputImageHash: outputTrace.hash,
+        outputImageLength: outputTrace.length,
+      });
+
       addVersion(imageUrl, cleanedPrompt, {
         objectLayers: latestObjectLayers,
         compositionBaseImage: compositionBaseImage || imageUrl,
+        requestId,
+        pipelineBranch: "refineImage",
+        inputImageHash: inputTrace.hash,
+        outputImageHash: outputTrace.hash,
       });
       setSelectedSetupImageIndex(null);
       setPrompt("");
@@ -164,7 +209,7 @@ const Editor = () => {
       toast.success("Imagem atualizada!");
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Erro ao editar imagem";
-      console.error(e);
+      console.error("[ReferenceEditDebug] editor:error", { requestId, message, error: e });
       toast.error(message);
     } finally {
       setIsGenerating(false);
