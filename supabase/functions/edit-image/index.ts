@@ -6,7 +6,23 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const SYSTEM_PROMPT = `VOCÊ É UM EDITOR DE IMAGENS PROFISSIONAL. SIGA ESTAS REGRAS COM RIGOR ABSOLUTO:
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+
+    const { content } = await req.json();
+    if (!content || !Array.isArray(content)) {
+      throw new Error("content array is required");
+    }
+
+    const systemPrompt = {
+      type: "text",
+      text: `VOCÊ É UM EDITOR DE IMAGENS PROFISSIONAL. SIGA ESTAS REGRAS COM RIGOR ABSOLUTO:
 
 IDENTIFICAÇÃO DA IMAGEM PRINCIPAL (REGRA FUNDAMENTAL):
 - A PRIMEIRA image_url enviada pelo usuário é SEMPRE a FOTO PRINCIPAL (TEMPLATE FIXO).
@@ -57,26 +73,12 @@ CHECKLIST FINAL OBRIGATÓRIO (ANTES DE ENTREGAR):
 
 RESULTADO:
 - A imagem final deve parecer foto real, coerente e sem artefatos visíveis.
-- Mantenha qualidade e resolução equivalentes à imagem original.`;
+- Mantenha qualidade e resolução equivalentes à imagem original.`,
+    };
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+    const augmentedContent = [systemPrompt, ...content];
 
-  try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
-
-    const { content } = await req.json();
-    if (!content || !Array.isArray(content)) {
-      throw new Error("content array is required");
-    }
-
-    const systemPromptItem = { type: "text", text: SYSTEM_PROMPT };
-    const augmentedContent = [systemPromptItem, ...content];
-
-    console.log("Calling AI gateway with google/gemini-3.1-flash-image-preview...");
+    console.log("Calling AI gateway with gemini-3.1-flash-image-preview...");
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -86,7 +88,12 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: "google/gemini-3.1-flash-image-preview",
-        messages: [{ role: "user", content: augmentedContent }],
+        messages: [
+          {
+            role: "user",
+            content: augmentedContent,
+          },
+        ],
         modalities: ["image", "text"],
       }),
     });
@@ -132,3 +139,4 @@ serve(async (req) => {
     });
   }
 });
+

@@ -1,18 +1,10 @@
 import { useImageEditor } from "@/contexts/ImageEditorContext";
-import { LLM_OPTIONS } from "@/contexts/ImageEditorContext";
 import { composeImage, type ReferenceImage } from "@/lib/image-generation";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { NavLink } from "@/components/NavLink";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 const Header = () => {
   const {
@@ -20,13 +12,10 @@ const Header = () => {
     isGenerating,
     setIsGenerating,
     addVersion,
-    selectedModel,
-    setSelectedModel,
   } = useImageEditor();
   const navigate = useNavigate();
   const location = useLocation();
   const isSetup = location.pathname === "/setup";
-  const isEditor = location.pathname === "/editor";
 
   const handleCompose = async () => {
     const primary = rows.find((r) => r.isPrimary);
@@ -51,7 +40,6 @@ const Header = () => {
       const { imageUrl } = await composeImage({
         baseImage: primary.imageData,
         references,
-        model: selectedModel,
       });
 
       addVersion(imageUrl, `Composição: ${references.map((r) => r.instruction).join(" + ")}`);
@@ -80,30 +68,15 @@ const Header = () => {
         </NavLink>
       </nav>
 
-      {(isSetup || isEditor) && (
+      {isSetup && (
         <div className="flex items-center gap-2">
-          <Select value={selectedModel} onValueChange={(v) => setSelectedModel(v as any)}>
-            <SelectTrigger className="h-8 w-[180px] text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {LLM_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {isSetup && (
-            <Button onClick={handleCompose} disabled={isGenerating} size="sm">
-              {isGenerating ? (
-                <><Loader2 className="animate-spin" /> Compondo...</>
-              ) : (
-                <><Sparkles /> Compor Decoração</>
-              )}
-            </Button>
-          )}
+          <Button onClick={handleCompose} disabled={isGenerating} size="sm">
+            {isGenerating ? (
+              <><Loader2 className="animate-spin" /> Compondo...</>
+            ) : (
+              <><Sparkles /> Compor Decoração</>
+            )}
+          </Button>
         </div>
       )}
     </header>

@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useImageEditor } from "@/contexts/ImageEditorContext";
-import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, FolderOpen, Loader2, LogOut } from "lucide-react";
+import { Plus, Trash2, FolderOpen } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,20 +13,16 @@ import {
 } from "@/components/ui/dialog";
 
 const Projects = () => {
-  const { projects, createProject, deleteProject, loadProject, loadingProjects } = useImageEditor();
-  const { signOut } = useAuth();
+  const { projects, createProject, deleteProject, loadProject } = useImageEditor();
   const navigate = useNavigate();
   const [showNew, setShowNew] = useState(false);
   const [name, setName] = useState("");
-  const [creating, setCreating] = useState(false);
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     if (!name.trim()) return;
-    setCreating(true);
-    await createProject(name.trim());
+    createProject(name.trim());
     setName("");
     setShowNew(false);
-    setCreating(false);
     navigate("/setup");
   };
 
@@ -40,21 +35,12 @@ const Projects = () => {
             Gerencie seus projetos de edição de imagem.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button onClick={() => setShowNew(true)}>
-            <Plus className="h-4 w-4" /> Novo Projeto
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => signOut()} title="Sair">
-            <LogOut className="h-4 w-4" />
-          </Button>
-        </div>
+        <Button onClick={() => setShowNew(true)}>
+          <Plus className="h-4 w-4" /> Novo Projeto
+        </Button>
       </div>
 
-      {loadingProjects ? (
-        <div className="flex items-center justify-center py-16 text-muted-foreground">
-          <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Carregando projetos...
-        </div>
-      ) : projects.length === 0 ? (
+      {projects.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-muted-foreground">
           <FolderOpen className="mb-3 h-10 w-10" />
           <p>Nenhum projeto criado ainda.</p>
@@ -104,8 +90,7 @@ const Projects = () => {
             <Button variant="outline" onClick={() => setShowNew(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleCreate} disabled={!name.trim() || creating}>
-              {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <Button onClick={handleCreate} disabled={!name.trim()}>
               Criar
             </Button>
           </DialogFooter>
