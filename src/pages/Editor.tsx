@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useImageEditor } from "@/contexts/ImageEditorContext";
 import VersionHistory from "@/components/VersionHistory";
 import DrawingOverlay from "@/components/DrawingOverlay";
@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
-import { handleReferenceImageEdit, refineImage } from "@/lib/image-generation";
+import { createImageEditRequestId, handleReferenceImageEdit, refineImage } from "@/lib/image-generation";
 
 export type LLMProvider = "gemini" | "openai" | "claude";
 
@@ -17,7 +17,22 @@ const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
   { value: "claude", label: "Claude" },
 ];
 
+const createStableHash = (value: string) => {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+};
 
+const createImageTrace = (image: string | null | undefined) => {
+  if (!image) return { hash: "null", length: 0, preview: "null" };
+  const sample = image.startsWith("data:") ? image.slice(Math.max(0, image.length - 4096)) : image;
+  const hash = createStableHash(sample);
+  const preview = image.length > 64 ? `${image.slice(0, 32)}...${image.slice(-32)}` : image;
+  return { hash, length: image.length, preview };
+};
 
 const Editor = () => {
   const {
