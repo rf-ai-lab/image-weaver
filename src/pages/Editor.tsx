@@ -17,6 +17,8 @@ import { generateImageWithFallback } from "@/lib/image-generation";
 
 type LlmProvider = "openai" | "claude" | "gemini";
 
+const SCENE_RECONSTRUCTION_INTERVAL = 3;
+
 const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -35,6 +37,11 @@ const Editor = () => {
     setCurrentVersion,
     isGenerating,
     setIsGenerating,
+    currentSceneDescription,
+    setCurrentSceneDescription,
+    editCount,
+    incrementEditCount,
+    resetEditCount,
   } = useImageEditor();
 
   const [prompt, setPrompt] = useState("");
@@ -53,8 +60,10 @@ const Editor = () => {
     selectedSetupImageIndex !== null ? setupImages[selectedSetupImageIndex]?.imageData ?? null : null;
   const currentImage = selectedSetupImage || versionImage;
 
-  // The image used as base for the next generation is always the latest version
+  // Always use the latest version as base for next generation
   const lastGeneratedImage = versions.length > 0 ? versions[versions.length - 1].imageData : null;
+  // Get the original primary image for scene reconstruction
+  const primaryImage = rows.find((r) => r.isPrimary)?.imageData || null;
 
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
@@ -74,7 +83,7 @@ const Editor = () => {
 
   const handleRefine = async () => {
     if (!prompt.trim()) return;
-    if (!currentImage) {
+    if (!currentImage && !lastGeneratedImage) {
       toast.error("Nenhuma imagem para editar. Gere a primeira versão.");
       return;
     }
@@ -89,21 +98,43 @@ const Editor = () => {
 
     setIsGenerating(true);
     try {
-      // Always use the last generated image as the base for image-to-image editing.
-      // If user annotated, use that (it's based on the current view). Otherwise use the latest version.
+      // Determine if we need scene reconstruction (every N edits)
+      const needsReconstruction =
+        editCount > 0 && editCount % SCENE_RECONSTRUCTION_INTERVAL === 0 && primaryImage;
+
+      // Image to send: annotated > last generated > current view
       const imageToSend = annotatedImage || lastGeneratedImage || currentImage;
       if (!imageToSend) {
         toast.error("Nenhuma imagem base encontrada.");
         setIsGenerating(false);
         return;
       }
-      const { imageUrl, usedFallback } = await generateImageWithFallback({
-        image: imageToSend,
+
+      if (needsReconstruction) {
+        console.log(`Scene reconstruction triggered (edit #${editCount}). Using original image as base.`);
+        toast.info("Reconstruindo cena para manter qualidade...");
+      }
+
+      const { imageUrl, usedFallback, updatedSceneDescription } = await generateImageWithFallback({
+        image: needsReconstruction ? primaryImage! : imageToSend,
         prompt: prompt.trim(),
+        sceneDescription: currentSceneDescription,
         llmProvider,
+        forceTextToImage: needsReconstruction,
       });
 
+      // Update scene description
+      if (updatedSceneDescription) {
+        setCurrentSceneDescription(updatedSceneDescription);
+      }
+
       addVersion(imageUrl, prompt);
+      incrementEditCount();
+
+      if (needsReconstruction) {
+        resetEditCount();
+      }
+
       setSelectedSetupImageIndex(null);
       setPrompt("");
       setAnnotatedImage(null);
@@ -134,22 +165,12 @@ const Editor = () => {
     toast.info("Marcações aplicadas! Agora descreva o que deseja alterar nas áreas marcadas.");
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files.length > 0) {
-      addFiles(e.dataTransfer.files);
-    }
+    if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files);
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -161,9 +182,7 @@ const Editor = () => {
         if (file) imageFiles.push(file);
       }
     }
-    if (imageFiles.length > 0) {
-      addFiles(imageFiles);
-    }
+    if (imageFiles.length > 0) addFiles(imageFiles);
   };
 
   if (versions.length === 0) {
@@ -177,13 +196,7 @@ const Editor = () => {
   }
 
   return (
-    <div
-      ref={dropZoneRef}
-      className="flex flex-1 flex-col"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
+    <div ref={dropZoneRef} className="flex flex-1 flex-col" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       {isDragging && (
         <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-primary/10 backdrop-blur-sm">
           <div className="rounded-xl border-2 border-dashed border-primary bg-card px-8 py-6 text-lg font-medium text-primary shadow-lg">
@@ -193,11 +206,7 @@ const Editor = () => {
       )}
 
       {isAnnotating && currentImage && (
-        <DrawingOverlay
-          imageUrl={currentImage}
-          onAnnotatedImage={handleAnnotatedImage}
-          onCancel={() => setIsAnnotating(false)}
-        />
+        <DrawingOverlay imageUrl={currentImage} onAnnotatedImage={handleAnnotatedImage} onCancel={() => setIsAnnotating(false)} />
       )}
 
       <div className="flex flex-1 flex-col items-center justify-center overflow-auto p-6">
@@ -222,10 +231,15 @@ const Editor = () => {
             const v = versions[currentVersionIndex];
             caption = v.prompt || v.label;
           }
-          return caption ? (
-            <p className="mt-3 max-w-xl text-center text-sm text-muted-foreground">{caption}</p>
-          ) : null;
+          return caption ? <p className="mt-3 max-w-xl text-center text-sm text-muted-foreground">{caption}</p> : null;
         })()}
+
+        {currentSceneDescription && (
+          <details className="mt-2 max-w-xl">
+            <summary className="cursor-pointer text-xs text-muted-foreground">Descrição da cena atual</summary>
+            <p className="mt-1 rounded bg-muted p-2 text-xs text-muted-foreground">{currentSceneDescription}</p>
+          </details>
+        )}
       </div>
 
       {attachedImages.length > 0 && (
@@ -240,9 +254,7 @@ const Editor = () => {
                 >
                   <X className="h-3 w-3" />
                 </button>
-                <span className="absolute -bottom-4 left-0 max-w-[48px] truncate text-[9px] text-muted-foreground">
-                  {img.name}
-                </span>
+                <span className="absolute -bottom-4 left-0 max-w-[48px] truncate text-[9px] text-muted-foreground">{img.name}</span>
               </div>
             ))}
           </div>
@@ -263,61 +275,25 @@ const Editor = () => {
                 <SelectItem value="gemini">Gemini</SelectItem>
               </SelectContent>
             </Select>
+            <span className="text-xs text-muted-foreground">Edição #{editCount}</span>
           </div>
           <div className="flex items-end gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => {
-                setSelectedSetupImageIndex(null);
-                undoVersion();
-              }}
-              disabled={currentVersionIndex <= 0}
-              title="Desfazer"
-            >
+            <Button variant="outline" size="icon" onClick={() => { setSelectedSetupImageIndex(null); undoVersion(); }} disabled={currentVersionIndex <= 0} title="Desfazer">
               <Undo2 className="h-4 w-4" />
             </Button>
-            <Button
-              variant={annotatedImage ? "default" : "outline"}
-              size="icon"
-              onClick={() => setIsAnnotating(true)}
-              disabled={isGenerating || !currentImage}
-              title="Marcar na imagem"
-            >
+            <Button variant={annotatedImage ? "default" : "outline"} size="icon" onClick={() => setIsAnnotating(true)} disabled={isGenerating || !currentImage} title="Marcar na imagem">
               <PenTool className="h-4 w-4" />
             </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isGenerating}
-              title="Anexar imagem de referência"
-            >
+            <Button variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isGenerating} title="Anexar imagem de referência">
               <ImagePlus className="h-4 w-4" />
             </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files) addFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
+            <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
             <Textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder={
-                annotatedImage
-                  ? "Descreva o que alterar nas áreas marcadas..."
-                  : attachedImages.length > 0
-                    ? "Descreva o que fazer com as imagens anexadas..."
-                    : "Descreva as alterações desejadas..."
-              }
+              placeholder={annotatedImage ? "Descreva o que alterar nas áreas marcadas..." : attachedImages.length > 0 ? "Descreva o que fazer com as imagens anexadas..." : "Descreva as alterações desejadas..."}
               className="min-h-[44px] max-h-[120px] resize-none text-sm"
               disabled={isGenerating}
             />
@@ -331,15 +307,8 @@ const Editor = () => {
       <VersionHistory
         setupImages={setupImages}
         selectedSetupImageIndex={selectedSetupImageIndex}
-        onSelectSetupImage={(index) => {
-          setSelectedSetupImageIndex(index);
-          setAnnotatedImage(null);
-        }}
-        onSelectVersion={(index) => {
-          setSelectedSetupImageIndex(null);
-          setAnnotatedImage(null);
-          setCurrentVersion(index);
-        }}
+        onSelectSetupImage={(index) => { setSelectedSetupImageIndex(index); setAnnotatedImage(null); }}
+        onSelectVersion={(index) => { setSelectedSetupImageIndex(null); setAnnotatedImage(null); setCurrentVersion(index); }}
       />
     </div>
   );
