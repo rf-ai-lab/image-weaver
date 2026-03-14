@@ -238,66 +238,81 @@ const Editor = () => {
       )}
 
       <div className="border-t border-border bg-card px-6 py-4">
-        <div className="mx-auto flex max-w-2xl items-end gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => {
-              setSelectedSetupImageIndex(null);
-              undoVersion();
-            }}
-            disabled={currentVersionIndex <= 0}
-            title="Desfazer"
-          >
-            <Undo2 className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={annotatedImage ? "default" : "outline"}
-            size="icon"
-            onClick={() => setIsAnnotating(true)}
-            disabled={isGenerating || !currentImage}
-            title="Marcar na imagem"
-          >
-            <PenTool className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isGenerating}
-            title="Anexar imagem de referência"
-          >
-            <ImagePlus className="h-4 w-4" />
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files) addFiles(e.target.files);
-              e.target.value = "";
-            }}
-          />
-          <Textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder={
-              annotatedImage
-                ? "Descreva o que alterar nas áreas marcadas..."
-                : attachedImages.length > 0
-                  ? "Descreva o que fazer com as imagens anexadas..."
-                  : "Descreva as alterações desejadas..."
-            }
-            className="min-h-[44px] max-h-[120px] resize-none text-sm"
-            disabled={isGenerating}
-          />
-          <Button onClick={handleRefine} disabled={isGenerating || !prompt.trim()} size="icon">
-            {isGenerating ? <Loader2 className="animate-spin" /> : <Send className="h-4 w-4" />}
-          </Button>
+        <div className="mx-auto max-w-2xl space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">LLM (teste):</span>
+            <Select value={llmProvider} onValueChange={(v) => setLlmProvider(v as LlmProvider)}>
+              <SelectTrigger className="h-8 w-[130px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="openai">OpenAI</SelectItem>
+                <SelectItem value="claude">Claude</SelectItem>
+                <SelectItem value="gemini">Gemini</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-end gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => {
+                setSelectedSetupImageIndex(null);
+                undoVersion();
+              }}
+              disabled={currentVersionIndex <= 0}
+              title="Desfazer"
+            >
+              <Undo2 className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={annotatedImage ? "default" : "outline"}
+              size="icon"
+              onClick={() => setIsAnnotating(true)}
+              disabled={isGenerating || !currentImage}
+              title="Marcar na imagem"
+            >
+              <PenTool className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isGenerating}
+              title="Anexar imagem de referência"
+            >
+              <ImagePlus className="h-4 w-4" />
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files) addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <Textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              placeholder={
+                annotatedImage
+                  ? "Descreva o que alterar nas áreas marcadas..."
+                  : attachedImages.length > 0
+                    ? "Descreva o que fazer com as imagens anexadas..."
+                    : "Descreva as alterações desejadas..."
+              }
+              className="min-h-[44px] max-h-[120px] resize-none text-sm"
+              disabled={isGenerating}
+            />
+            <Button onClick={handleRefine} disabled={isGenerating || !prompt.trim()} size="icon">
+              {isGenerating ? <Loader2 className="animate-spin" /> : <Send className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
       </div>
 
