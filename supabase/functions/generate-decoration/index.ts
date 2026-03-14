@@ -114,7 +114,7 @@ async function optimizePrompt(instruction: string, provider: LlmProvider): Promi
 async function pollPrediction(id: string, token: string, maxAttempts = 60): Promise<any> {
   for (let i = 0; i < maxAttempts; i++) {
     const res = await fetch(`${REPLICATE_API}/predictions/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Token ${token}` },
     });
     const data = await res.json();
 
