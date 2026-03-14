@@ -128,6 +128,11 @@ async function pollPrediction(id: string, token: string, maxAttempts = 60): Prom
   throw new Error("Timeout: a geração demorou demais.");
 }
 
+function normalizeReplicateToken(rawToken: string | undefined): string {
+  if (!rawToken) return "";
+  return rawToken.trim().replace(/^Bearer\s+/i, "");
+}
+
 // ── Main handler ────────────────────────────────────────────────────────────
 
 serve(async (req) => {
