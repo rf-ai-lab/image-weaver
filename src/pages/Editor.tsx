@@ -17,7 +17,7 @@ const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
   { value: "claude", label: "Claude" },
 ];
 
-const FORCE_REPLACE_MODE = true;
+
 
 const Editor = () => {
   const {
