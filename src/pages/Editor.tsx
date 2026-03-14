@@ -8,11 +8,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { handleReferenceImageEdit, refineImage } from "@/lib/image-generation";
-import {
-  applyObjectTransformCommand,
-  composeImageFromLayers,
-  parseObjectTransformPrompt,
-} from "@/lib/object-composition";
 
 export type LLMProvider = "gemini" | "openai" | "claude";
 
@@ -22,7 +17,7 @@ const LLM_OPTIONS: { value: LLMProvider; label: string }[] = [
   { value: "claude", label: "Claude" },
 ];
 
-const FORCE_REPLACE_MODE = true;
+
 
 const Editor = () => {
   const {
@@ -102,7 +97,6 @@ const Editor = () => {
           instruction,
           currentImage: imageToSend,
           llmProvider: selectedLLM,
-          forceReplaceMode: FORCE_REPLACE_MODE,
         });
 
         console.info("[ReferenceEditDebug] Editor result", result.debug);
@@ -115,9 +109,9 @@ const Editor = () => {
         const actionMessage =
           result.action === "replaced_layer"
             ? `Objeto "${result.targetLabel}" substituído na composição.`
-            : result.action === "ai_replace"
-            ? `Substituição aplicada via IA${result.targetLabel ? ` (alvo: ${result.targetLabel})` : ""}.`
-            : `Objeto "${result.targetLabel || "novo"}" adicionado à composição.`;
+            : result.action === "added_layer"
+            ? `Objeto "${result.targetLabel || "novo"}" adicionado à composição.`
+            : `Edição com referência aplicada via IA${result.targetLabel ? ` (alvo: ${result.targetLabel})` : ""}.`;
 
         setSelectedSetupImageIndex(null);
         setPrompt("");
@@ -127,34 +121,7 @@ const Editor = () => {
         return;
       }
 
-      // --- PATH 2: Transform command on tracked object ---
-      const parsedTransform = !annotatedImage
-        ? parseObjectTransformPrompt(cleanedPrompt, latestObjectLayers)
-        : null;
-
-      if (parsedTransform && compositionBaseImage && latestObjectLayers.length > 0) {
-        const { layers: updatedLayers, targetLayer } = applyObjectTransformCommand(latestObjectLayers, parsedTransform);
-
-        if (!targetLayer) {
-          throw new Error("Não encontrei o objeto alvo para transformar nesta versão.");
-        }
-
-        const imageUrl = await composeImageFromLayers(compositionBaseImage, updatedLayers);
-
-        addVersion(imageUrl, cleanedPrompt, {
-          objectLayers: updatedLayers,
-          compositionBaseImage,
-        });
-
-        setSelectedSetupImageIndex(null);
-        setPrompt("");
-        setAnnotatedImage(null);
-        setAttachedImage(null);
-        toast.success(`Transformação aplicada no objeto: ${targetLayer.label}.`);
-        return;
-      }
-
-      // --- PATH 3: Free-form AI refinement ---
+      // --- PATH 2: Free-form AI refinement ---
       const { imageUrl } = await refineImage(imageToSend, cleanedPrompt, undefined, selectedLLM);
       addVersion(imageUrl, cleanedPrompt, {
         objectLayers: latestObjectLayers,

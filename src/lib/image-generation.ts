@@ -355,9 +355,9 @@ export async function replaceLayerInComposition({
 }
 
 /**
- * Smart handler: decides whether to replace or add based on instruction + existing layers.
- * Also handles the case where the target is baked into the base image (no tracked layer)
- * by falling back to AI refinement with explicit replace instructions.
+ * Smart handler para edição com imagem de referência.
+ * Mantém parsing e logs de debug, mas prioriza novamente o fluxo via IA
+ * para restaurar o comportamento anterior de edição sequencial.
  */
 export async function handleReferenceImageEdit({
   compositionBaseImage,
@@ -379,7 +379,7 @@ export async function handleReferenceImageEdit({
   imageUrl: string;
   layers: ObjectLayer[];
   compositionBaseImage: string | null;
-  action: "replaced_layer" | "added_layer" | "ai_replace";
+  action: "replaced_layer" | "added_layer" | "ai_edit";
   targetLabel?: string;
   debug: ReferenceEditDebugInfo;
 }> {
@@ -399,183 +399,70 @@ export async function handleReferenceImageEdit({
     existingLayerLabels: existingLayers.map((layer) => layer.label),
   });
 
-  if (forceReplaceMode && intentResult.intent !== "replace") {
-    throw new Error(
-      "forceReplaceMode ativo: a instrução não foi reconhecida como substituição. Use termos como 'trocar' ou 'substituir'."
-    );
-  }
-
-  if (forceReplaceMode && !compositionBaseImage) {
-    throw new Error(
-      "forceReplaceMode ativo: não existe base de composição rastreável para substituir objeto com segurança."
-    );
-  }
-
-  if (forceReplaceMode && !hasCompatibleLayer) {
-    throw new Error(
-      "forceReplaceMode ativo: não foi encontrado layer compatível para substituir. Evitei fallback ambíguo."
-    );
-  }
-
-  if (intentResult.intent === "replace" && hasCompatibleLayer && compositionBaseImage) {
-    const { imageUrl, layers, replacedLayer } = await replaceLayerInComposition({
-      compositionBaseImage,
-      existingLayers,
-      referenceImage,
-      instruction,
-      targetLayerIndex: intentResult.matchedLayerIndex,
-    });
-
-    const noOp = await detectNoOpEdit(currentImage, imageUrl);
-    if (noOp.noOp) {
-      console.error(`${DEBUG_PREFIX} no-op replace detectado`, {
-        differenceRatio: noOp.differenceRatio,
-        threshold: NO_OP_DIFF_THRESHOLD,
-        path: "replaceLayerInComposition",
-      });
-      if (forceReplaceMode) {
-        throw new Error(
-          "Falha de replace: a imagem final ficou visualmente idêntica à anterior (no-op)."
-        );
-      }
-    }
-
-    const debug: ReferenceEditDebugInfo = {
-      instruction,
-      detectedIntent: intentResult.intent,
-      targetLabel: replacedLayer.label,
-      hasCompatibleLayer,
-      matchedLayerIndex: intentResult.matchedLayerIndex,
-      executedPath: "replaceLayerInComposition",
-      forceReplaceMode,
-      inputBaseImageId: toImageDebugId(compositionBaseImage),
-      inputCurrentImageId: toImageDebugId(currentImage),
-      inputReferenceImageId: toImageDebugId(referenceImage),
-      outputImageId: toImageDebugId(imageUrl),
-      differenceRatio: noOp.differenceRatio,
-      noOpDetected: noOp.noOp,
-    };
-
-    logDebug("handleReferenceImageEdit:done", debug);
-
-    return {
-      imageUrl,
-      layers,
-      compositionBaseImage,
-      action: "replaced_layer",
-      targetLabel: replacedLayer.label,
-      debug,
-    };
-  }
+  let imageUrl = "";
+  let executedPath: ReferenceEditPath = "refineImageFallback";
+  let differenceRatio: number | undefined;
+  let noOpDetected: boolean | undefined;
 
   if (intentResult.intent === "replace") {
-    const { imageUrl } = await refineImageWithReplaceContext(
-      currentImage,
-      referenceImage,
-      instruction,
-      llmProvider,
-      intentResult.targetLabel
-    );
+    const firstPass = await refineImage(currentImage, instruction, referenceImage, llmProvider);
+    imageUrl = firstPass.imageUrl;
 
-    const noOp = await detectNoOpEdit(currentImage, imageUrl);
-    if (noOp.noOp) {
-      console.error(`${DEBUG_PREFIX} no-op replace detectado`, {
-        differenceRatio: noOp.differenceRatio,
+    const firstDiff = await detectNoOpEdit(currentImage, imageUrl);
+    differenceRatio = firstDiff.differenceRatio;
+    noOpDetected = firstDiff.noOp;
+
+    if (firstDiff.noOp) {
+      logDebug("handleReferenceImageEdit:replaceNoOpRetry", {
+        differenceRatio: firstDiff.differenceRatio,
         threshold: NO_OP_DIFF_THRESHOLD,
-        path: "refineImageWithReplaceContext",
+        path: "refineImageFallback",
       });
-      if (forceReplaceMode) {
-        throw new Error(
-          "Falha de replace via IA: saída visualmente idêntica à entrada (no-op)."
-        );
-      }
+
+      const retry = await refineImageWithReplaceContext(
+        currentImage,
+        referenceImage,
+        instruction,
+        llmProvider,
+        intentResult.targetLabel
+      );
+
+      imageUrl = retry.imageUrl;
+      executedPath = "refineImageWithReplaceContext";
+
+      const retryDiff = await detectNoOpEdit(currentImage, imageUrl);
+      differenceRatio = retryDiff.differenceRatio;
+      noOpDetected = retryDiff.noOp;
     }
-
-    const debug: ReferenceEditDebugInfo = {
-      instruction,
-      detectedIntent: intentResult.intent,
-      targetLabel: intentResult.targetLabel,
-      hasCompatibleLayer,
-      matchedLayerIndex: intentResult.matchedLayerIndex,
-      executedPath: "refineImageWithReplaceContext",
-      forceReplaceMode,
-      inputBaseImageId: toImageDebugId(compositionBaseImage),
-      inputCurrentImageId: toImageDebugId(currentImage),
-      inputReferenceImageId: toImageDebugId(referenceImage),
-      outputImageId: toImageDebugId(imageUrl),
-      differenceRatio: noOp.differenceRatio,
-      noOpDetected: noOp.noOp,
-    };
-
-    logDebug("handleReferenceImageEdit:done", debug);
-
-    return {
-      imageUrl,
-      layers: [],
-      compositionBaseImage: imageUrl,
-      action: "ai_replace",
-      targetLabel: intentResult.targetLabel,
-      debug,
-    };
+  } else {
+    const refined = await refineImage(currentImage, instruction, referenceImage, llmProvider);
+    imageUrl = refined.imageUrl;
   }
-
-  if (!compositionBaseImage) {
-    const { imageUrl } = await refineImage(currentImage, instruction, referenceImage, llmProvider);
-
-    const debug: ReferenceEditDebugInfo = {
-      instruction,
-      detectedIntent: intentResult.intent,
-      targetLabel: intentResult.targetLabel,
-      hasCompatibleLayer,
-      matchedLayerIndex: intentResult.matchedLayerIndex,
-      executedPath: "refineImageFallback",
-      forceReplaceMode,
-      inputBaseImageId: toImageDebugId(compositionBaseImage),
-      inputCurrentImageId: toImageDebugId(currentImage),
-      inputReferenceImageId: toImageDebugId(referenceImage),
-      outputImageId: toImageDebugId(imageUrl),
-    };
-
-    logDebug("handleReferenceImageEdit:done", debug);
-
-    return {
-      imageUrl,
-      layers: [],
-      compositionBaseImage: imageUrl,
-      action: "ai_replace",
-      debug,
-    };
-  }
-
-  const { imageUrl, layers, addedLayer } = await appendReferenceObjectToComposition({
-    compositionBaseImage,
-    existingLayers,
-    referenceImage,
-    instruction,
-  });
 
   const debug: ReferenceEditDebugInfo = {
     instruction,
     detectedIntent: intentResult.intent,
-    targetLabel: addedLayer.label,
+    targetLabel: intentResult.targetLabel,
     hasCompatibleLayer,
     matchedLayerIndex: intentResult.matchedLayerIndex,
-    executedPath: "appendReferenceObjectToComposition",
+    executedPath,
     forceReplaceMode,
     inputBaseImageId: toImageDebugId(compositionBaseImage),
     inputCurrentImageId: toImageDebugId(currentImage),
     inputReferenceImageId: toImageDebugId(referenceImage),
     outputImageId: toImageDebugId(imageUrl),
+    differenceRatio,
+    noOpDetected,
   };
 
   logDebug("handleReferenceImageEdit:done", debug);
 
   return {
     imageUrl,
-    layers,
-    compositionBaseImage,
-    action: "added_layer",
-    targetLabel: addedLayer.label,
+    layers: [],
+    compositionBaseImage: imageUrl,
+    action: "ai_edit",
+    targetLabel: intentResult.targetLabel,
     debug,
   };
 }
