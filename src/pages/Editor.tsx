@@ -120,7 +120,7 @@ const Editor = () => {
         prompt: prompt.trim(),
         sceneDescription: currentSceneDescription,
         llmProvider,
-        forceTextToImage: needsReconstruction,
+        forceTextToImage: !!needsReconstruction,
       });
 
       // Update scene description
