@@ -53,6 +53,9 @@ const Editor = () => {
     selectedSetupImageIndex !== null ? setupImages[selectedSetupImageIndex]?.imageData ?? null : null;
   const currentImage = selectedSetupImage || versionImage;
 
+  // The image used as base for the next generation is always the latest version
+  const lastGeneratedImage = versions.length > 0 ? versions[versions.length - 1].imageData : null;
+
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (imageFiles.length === 0) {
@@ -86,7 +89,14 @@ const Editor = () => {
 
     setIsGenerating(true);
     try {
-      const imageToSend = annotatedImage || currentImage;
+      // Always use the last generated image as the base for image-to-image editing.
+      // If user annotated, use that (it's based on the current view). Otherwise use the latest version.
+      const imageToSend = annotatedImage || lastGeneratedImage || currentImage;
+      if (!imageToSend) {
+        toast.error("Nenhuma imagem base encontrada.");
+        setIsGenerating(false);
+        return;
+      }
       const { imageUrl, usedFallback } = await generateImageWithFallback({
         image: imageToSend,
         prompt: prompt.trim(),
