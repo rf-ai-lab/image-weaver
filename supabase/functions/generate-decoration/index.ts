@@ -169,13 +169,14 @@ serve(async (req) => {
     // Step 2: Send to Replicate for image generation
     console.log("Creating Replicate prediction with instruct-pix2pix...");
 
-    const createRes = await fetch(`${REPLICATE_API}/models/timothybrooks/instruct-pix2pix/predictions`, {
+    const createRes = await fetch(`${REPLICATE_API}/predictions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        version: "30c1d0b916a6f8efce20493f5d61ee27491ab2a60437c13c588468b9810ec23f",
         input: {
           image,
           prompt: optimizedPrompt,
