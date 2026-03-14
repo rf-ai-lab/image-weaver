@@ -73,7 +73,7 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [versions, setVersions] = useState<ImageVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<LLMModel>("google/gemini-3.1-flash-image-preview");
+  const [selectedModel, setSelectedModel] = useState<LLMModel>("gemini");
   const [loadingProjects, setLoadingProjects] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
