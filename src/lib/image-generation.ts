@@ -114,11 +114,10 @@ async function composeWithAI(baseImage: string, segmentedRefs: { segmentedUrl: s
  * 2. Send base image + all segmented objects + instructions to Gemini for composition
  * 3. Return the final composed image
  */
-export async function composeImage({ baseImage, references }: ComposeImageParams): Promise<ComposeImageResult> {
+export async function composeImage({ baseImage, references, model }: ComposeImageParams): Promise<ComposeImageResult> {
   if (!baseImage) throw new Error("Imagem base é obrigatória.");
   if (!references || references.length === 0) throw new Error("Pelo menos uma imagem de referência é necessária.");
 
-  // Step 1: Segment all reference images in parallel
   const segmentationResults = await Promise.all(
     references.map(async (ref) => {
       const segmentedUrl = await segmentObject(ref.image);
@@ -126,9 +125,7 @@ export async function composeImage({ baseImage, references }: ComposeImageParams
     })
   );
 
-  // Step 2: Compose all segmented objects onto the base image
-  const imageUrl = await composeWithAI(baseImage, segmentationResults);
-
+  const imageUrl = await composeWithAI(baseImage, segmentationResults, model);
   return { imageUrl };
 }
 
