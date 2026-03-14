@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
-import { appendReferenceObjectToComposition, refineImage } from "@/lib/image-generation";
+import { handleReferenceImageEdit, refineImage } from "@/lib/image-generation";
 import {
   applyObjectTransformCommand,
   composeImageFromLayers,
@@ -89,32 +89,40 @@ const Editor = () => {
 
     setIsGenerating(true);
     try {
+      // --- PATH 1: Attached reference image (replace or add) ---
       if (attachedImage) {
-        if (!compositionBaseImage) {
-          throw new Error("Defina uma foto principal para manter a composição fixa antes de anexar novos objetos.");
-        }
-
         const instruction = cleanedPrompt || "Adicionar novo objeto de referência";
-        const { imageUrl, layers } = await appendReferenceObjectToComposition({
-          compositionBaseImage,
+
+        const result = await handleReferenceImageEdit({
+          compositionBaseImage: compositionBaseImage || null,
           existingLayers: latestObjectLayers,
           referenceImage: attachedImage,
           instruction,
+          currentImage: imageToSend,
+          llmProvider: selectedLLM,
         });
 
-        addVersion(imageUrl, instruction, {
-          objectLayers: layers,
-          compositionBaseImage,
+        addVersion(result.imageUrl, instruction, {
+          objectLayers: result.layers,
+          compositionBaseImage: result.compositionBaseImage,
         });
+
+        const actionMessage =
+          result.action === "replaced_layer"
+            ? `Objeto "${result.targetLabel}" substituído na composição.`
+            : result.action === "ai_replace"
+            ? `Substituição aplicada via IA${result.targetLabel ? ` (alvo: ${result.targetLabel})` : ""}.`
+            : `Objeto "${result.targetLabel || "novo"}" adicionado à composição.`;
 
         setSelectedSetupImageIndex(null);
         setPrompt("");
         setAnnotatedImage(null);
         setAttachedImage(null);
-        toast.success("Objeto adicionado com composição local preservando a cena.");
+        toast.success(actionMessage);
         return;
       }
 
+      // --- PATH 2: Transform command on tracked object ---
       const parsedTransform = !annotatedImage
         ? parseObjectTransformPrompt(cleanedPrompt, latestObjectLayers)
         : null;
@@ -141,10 +149,11 @@ const Editor = () => {
         return;
       }
 
+      // --- PATH 3: Free-form AI refinement ---
       const { imageUrl } = await refineImage(imageToSend, cleanedPrompt, undefined, selectedLLM);
       addVersion(imageUrl, cleanedPrompt, {
-        objectLayers: [],
-        compositionBaseImage: imageUrl,
+        objectLayers: latestObjectLayers,
+        compositionBaseImage: compositionBaseImage || imageUrl,
       });
       setSelectedSetupImageIndex(null);
       setPrompt("");
@@ -265,7 +274,7 @@ const Editor = () => {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={attachedImage ? "Descreva como posicionar esse objeto na cena..." : annotatedImage ? "Descreva o que alterar nas áreas marcadas..." : "Ex: reduza o portal pela metade, mova para a direita, centralize..."}
+              placeholder={attachedImage ? "Ex: trocar o arco por este, usar esse portal no altar..." : annotatedImage ? "Descreva o que alterar nas áreas marcadas..." : "Ex: reduza o portal pela metade, mova para a direita, centralize..."}
               className="min-h-[44px] max-h-[120px] resize-none text-sm"
               disabled={isGenerating}
             />
