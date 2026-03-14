@@ -85,16 +85,40 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const { content, llmProvider } = await req.json();
+    const {
+      content,
+      llmProvider,
+      requestId,
+      operation,
+      inputImageHash: forwardedInputImageHash,
+      referenceImageHash: forwardedReferenceImageHash,
+    } = await req.json();
+
     if (!content || !Array.isArray(content)) {
       throw new Error("content array is required");
     }
 
+    const effectiveRequestId = requestId || crypto.randomUUID();
     const model = LLM_MODELS[llmProvider || "gemini"] || LLM_MODELS.gemini;
+    const imageUrls = findImageUrls(content);
+    const inputImage = imageUrls[0] ?? null;
+    const referenceImage = imageUrls[1] ?? null;
+    const inputTrace = imageTrace(inputImage);
+    const referenceTrace = imageTrace(referenceImage);
 
     console.log("[ReferenceEditDebug][edit-image] request", {
+      timestamp: new Date().toISOString(),
+      requestId: effectiveRequestId,
+      operation: operation || "unspecified",
       llmProvider: llmProvider || "gemini",
       model,
+      cacheUsed: false,
+      inputImageHash: forwardedInputImageHash || inputTrace.hash,
+      referenceImageHash: forwardedReferenceImageHash || referenceTrace.hash,
+      inputImageLength: inputTrace.length,
+      referenceImageLength: referenceTrace.length,
+      inputImagePreview: inputTrace.preview,
+      referenceImagePreview: referenceTrace.preview,
       contentSummary: summarizeContent(content),
     });
 
