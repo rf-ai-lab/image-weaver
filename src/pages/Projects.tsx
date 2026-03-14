@@ -3,7 +3,7 @@ import { useImageEditor } from "@/contexts/ImageEditorContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, FolderOpen, Loader2 } from "lucide-react";
+import { Plus, Trash2, FolderOpen } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 
 const Projects = () => {
-  const { projects, loadingProjects, createProject, deleteProject, loadProject } = useImageEditor();
+  const { projects, createProject, deleteProject, loadProject } = useImageEditor();
   const navigate = useNavigate();
   const [showNew, setShowNew] = useState(false);
   const [name, setName] = useState("");
@@ -40,11 +40,7 @@ const Projects = () => {
         </Button>
       </div>
 
-      {loadingProjects ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      ) : projects.length === 0 ? (
+      {projects.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16 text-muted-foreground">
           <FolderOpen className="mb-3 h-10 w-10" />
           <p>Nenhum projeto criado ainda.</p>
