@@ -40,6 +40,42 @@ function summarizeContent(content: any[]): unknown[] {
   });
 }
 
+function createStableHash(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function imageTrace(image: string | null | undefined) {
+  if (!image) {
+    return {
+      hash: "null",
+      length: 0,
+      preview: "null",
+      identifier: "null",
+    };
+  }
+
+  const sample = image.startsWith("data:") ? image.slice(Math.max(0, image.length - 4096)) : image;
+  const hash = createStableHash(sample);
+  const preview = image.length > 96 ? `${image.slice(0, 48)}...${image.slice(-48)}` : image;
+  return {
+    hash,
+    length: image.length,
+    preview,
+    identifier: image.startsWith("data:") ? `data:len=${image.length};hash=${hash}` : `url:${preview};hash=${hash}`,
+  };
+}
+
+function findImageUrls(content: any[]): string[] {
+  return content
+    .filter((item) => item?.type === "image_url" && typeof item?.image_url?.url === "string")
+    .map((item) => item.image_url.url as string);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
