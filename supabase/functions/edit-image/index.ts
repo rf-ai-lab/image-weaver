@@ -259,14 +259,37 @@ RESULTADO:
       throw new Error("Nenhuma imagem foi gerada pela IA");
     }
 
+    const outputTrace = imageTrace(imageUrl);
+
     console.log("[ReferenceEditDebug][edit-image] response", {
-      imageUrlPreview: typeof imageUrl === "string" ? imageUrl.slice(0, 180) : "",
+      timestamp: new Date().toISOString(),
+      requestId: effectiveRequestId,
+      operation: operation || "unspecified",
+      model,
+      inputImageHash: inputTrace.hash,
+      outputImageHash: outputTrace.hash,
+      outputImageLength: outputTrace.length,
+      outputImagePreview: outputTrace.preview,
       hasTextResponse: Boolean(textResponse),
     });
 
-    return new Response(JSON.stringify({ imageUrl, text: textResponse }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        imageUrl,
+        text: textResponse,
+        requestId: effectiveRequestId,
+        debug: {
+          model,
+          inputImageHash: inputTrace.hash,
+          outputImageHash: outputTrace.hash,
+          outputImageLength: outputTrace.length,
+          cacheUsed: false,
+        },
+      }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   } catch (e) {
     console.error("edit-image error:", e);
     const message = e instanceof Error ? e.message : "Erro desconhecido";
