@@ -141,9 +141,9 @@ serve(async (req) => {
   }
 
   try {
-    const REPLICATE_API_TOKEN = Deno.env.get("REPLICATE_API_TOKEN");
+    const REPLICATE_API_TOKEN = normalizeReplicateToken(Deno.env.get("REPLICATE_API_TOKEN"));
     if (!REPLICATE_API_TOKEN) {
-      throw new Error("REPLICATE_API_TOKEN não está configurado.");
+      throw new Error("REPLICATE_API_TOKEN não está configurado ou está vazio.");
     }
 
     const { image, prompt, llm_provider = "openai" } = await req.json();
