@@ -7,6 +7,7 @@ import {
   resolveImageToDataUrl,
   type ObjectLayer,
   type ReferenceIntent,
+  type ReferenceIntent,
 } from "@/lib/object-composition";
 
 export interface ReferenceImage {
