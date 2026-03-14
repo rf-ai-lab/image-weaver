@@ -172,7 +172,14 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
     (
       imageData: string,
       prompt?: string,
-      metadata?: { objectLayers?: ObjectLayer[]; compositionBaseImage?: string | null }
+      metadata?: {
+        objectLayers?: ObjectLayer[];
+        compositionBaseImage?: string | null;
+        requestId?: string;
+        pipelineBranch?: string;
+        inputImageHash?: string;
+        outputImageHash?: string;
+      }
     ) => {
       setVersions((prev) => {
         const next = [
