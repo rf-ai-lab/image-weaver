@@ -53,6 +53,9 @@ const Editor = () => {
     selectedSetupImageIndex !== null ? setupImages[selectedSetupImageIndex]?.imageData ?? null : null;
   const currentImage = selectedSetupImage || versionImage;
 
+  // The image used as base for the next generation is always the latest version
+  const lastGeneratedImage = versions.length > 0 ? versions[versions.length - 1].imageData : null;
+
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (imageFiles.length === 0) {
