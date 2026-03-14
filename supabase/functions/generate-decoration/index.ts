@@ -8,7 +8,8 @@ const corsHeaders = {
 
 const REPLICATE_API = "https://api.replicate.com/v1";
 
-// ── Replicate polling ───────────────────────────────────────────────────────
+// Model: lucataco/sdxl-controlnet (canny edge detection for structure preservation)
+const MODEL_VERSION = "06d6fae3b75ab68a28cd2900afa6033166910dd09fd9751047043a5bbb4c184b";
 
 async function pollPrediction(id: string, token: string, maxAttempts = 60): Promise<any> {
   for (let i = 0; i < maxAttempts; i++) {
@@ -30,8 +31,6 @@ function normalizeReplicateToken(rawToken: string | undefined): string {
   return rawToken.trim().replace(/^Bearer\s+/i, "").replace(/^['"]|['"]$/g, "");
 }
 
-// ── Main handler ────────────────────────────────────────────────────────────
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -46,16 +45,16 @@ serve(async (req) => {
     if (!image) throw new Error("Imagem é obrigatória.");
     if (!prompt) throw new Error("Prompt é obrigatório.");
 
-    // Direct image-to-image with instruct-pix2pix — no LLM processing
-    console.log("Creating Replicate prediction (image-to-image, direct prompt)...");
+    console.log("Creating Replicate prediction (SDXL ControlNet, image-to-image)...");
     console.log("Prompt:", prompt);
 
     const replicateInput = {
       image,
       prompt,
-      num_inference_steps: 25,
-      image_guidance_scale: 1.2,
+      num_inference_steps: 30,
+      condition_scale: 0.8,
       guidance_scale: 7.5,
+      seed: 0,
     };
 
     const createRes = await fetch(`${REPLICATE_API}/predictions`, {
@@ -65,7 +64,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        version: "30c1d0b916a6f8efce20493f5d61ee27491ab2a60437c13c588468b9810ec23f",
+        version: MODEL_VERSION,
         input: replicateInput,
       }),
     });
