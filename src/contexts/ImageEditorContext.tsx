@@ -200,6 +200,8 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         isGenerating,
         activeProjectId,
         projects,
+        selectedModel,
+        setSelectedModel,
         addRow,
         removeRow,
         updateRow,
