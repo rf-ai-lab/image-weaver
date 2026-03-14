@@ -8,6 +8,109 @@ const corsHeaders = {
 
 const REPLICATE_API = "https://api.replicate.com/v1";
 
+// ── LLM Prompt Optimization ────────────────────────────────────────────────
+
+const SYSTEM_PROMPT = `You are a prompt engineer specializing in image-to-image editing for wedding venue decoration.
+Given a user instruction in any language, produce a concise, English prompt optimized for Stable Diffusion (instruct-pix2pix).
+Rules:
+- Output ONLY the optimized prompt text, nothing else.
+- Keep the same camera angle, perspective and background.
+- Be specific about colors, materials, sizes and placement.
+- Always end with: "Photorealistic, high quality, maintain original perspective."`;
+
+async function optimizeWithOpenAI(instruction: string): Promise<string> {
+  const key = Deno.env.get("LOVABLE_API_KEY");
+  if (!key) throw new Error("LOVABLE_API_KEY não configurada (necessária para OpenAI via gateway).");
+
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "openai/gpt-5-mini",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: instruction },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`OpenAI (gateway) error ${res.status}: ${t}`);
+  }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content?.trim() || instruction;
+}
+
+async function optimizeWithClaude(instruction: string): Promise<string> {
+  const key = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!key) throw new Error("ANTHROPIC_API_KEY não configurada. Adicione nas configurações do projeto.");
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 300,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: instruction }],
+    }),
+  });
+
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`Claude error ${res.status}: ${t}`);
+  }
+  const data = await res.json();
+  return data.content?.[0]?.text?.trim() || instruction;
+}
+
+async function optimizeWithGemini(instruction: string): Promise<string> {
+  const key = Deno.env.get("LOVABLE_API_KEY");
+  if (!key) throw new Error("LOVABLE_API_KEY não configurada (necessária para Gemini via gateway).");
+
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: instruction },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`Gemini (gateway) error ${res.status}: ${t}`);
+  }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content?.trim() || instruction;
+}
+
+type LlmProvider = "openai" | "claude" | "gemini";
+
+async function optimizePrompt(instruction: string, provider: LlmProvider): Promise<string> {
+  console.log(`Optimizing prompt with ${provider}...`);
+  switch (provider) {
+    case "openai":
+      return optimizeWithOpenAI(instruction);
+    case "claude":
+      return optimizeWithClaude(instruction);
+    case "gemini":
+      return optimizeWithGemini(instruction);
+    default:
+      return optimizeWithOpenAI(instruction);
+  }
+}
+
+// ── Replicate polling ───────────────────────────────────────────────────────
+
 async function pollPrediction(id: string, token: string, maxAttempts = 60): Promise<any> {
   for (let i = 0; i < maxAttempts; i++) {
     const res = await fetch(`${REPLICATE_API}/predictions/${id}`, {
@@ -20,11 +123,12 @@ async function pollPrediction(id: string, token: string, maxAttempts = 60): Prom
       throw new Error(data.error || "A geração da imagem falhou.");
     }
 
-    // Wait 2 seconds between polls
     await new Promise((r) => setTimeout(r, 2000));
   }
   throw new Error("Timeout: a geração demorou demais.");
 }
+
+// ── Main handler ────────────────────────────────────────────────────────────
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -37,17 +141,26 @@ serve(async (req) => {
       throw new Error("REPLICATE_API_TOKEN não está configurado.");
     }
 
-    const { image, prompt } = await req.json();
+    const { image, prompt, llm_provider = "openai" } = await req.json();
 
     if (!image) throw new Error("Imagem é obrigatória.");
     if (!prompt) throw new Error("Prompt é obrigatório.");
 
-    // Build a decoration-specific prompt
-    const decorationPrompt = `Wedding venue decoration edit: ${prompt}. Maintain the exact same camera angle, perspective, and background. Photorealistic result.`;
+    // Step 1: Use the selected LLM to optimize the user instruction into a Stable Diffusion prompt
+    let optimizedPrompt: string;
+    try {
+      optimizedPrompt = await optimizePrompt(prompt, llm_provider as LlmProvider);
+      console.log(`Optimized prompt (${llm_provider}):`, optimizedPrompt);
+    } catch (llmError) {
+      console.error(`LLM optimization failed (${llm_provider}):`, llmError);
+      // Fallback: use the raw instruction with basic English wrapping
+      optimizedPrompt = `Wedding venue decoration edit: ${prompt}. Maintain the exact same camera angle, perspective, and background. Photorealistic result.`;
+      console.log("Using fallback prompt:", optimizedPrompt);
+    }
 
+    // Step 2: Send to Replicate for image generation
     console.log("Creating Replicate prediction with instruct-pix2pix...");
 
-    // Create prediction using instruct-pix2pix model
     const createRes = await fetch(`${REPLICATE_API}/models/timothybrooks/instruct-pix2pix/predictions`, {
       method: "POST",
       headers: {
@@ -57,7 +170,7 @@ serve(async (req) => {
       body: JSON.stringify({
         input: {
           image,
-          prompt: decorationPrompt,
+          prompt: optimizedPrompt,
           num_inference_steps: 50,
           image_guidance_scale: 1.5,
           guidance_scale: 7.5,
@@ -94,11 +207,9 @@ serve(async (req) => {
     const prediction = await createRes.json();
     console.log("Prediction created:", prediction.id);
 
-    // Poll for completion
     const result = await pollPrediction(prediction.id, REPLICATE_API_TOKEN);
     console.log("Prediction completed:", result.id);
 
-    // instruct-pix2pix returns an array of image URLs
     const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
 
     if (!outputUrl) {
@@ -106,7 +217,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ imageUrl: outputUrl }),
+      JSON.stringify({ imageUrl: outputUrl, optimizedPrompt, llmUsed: llm_provider }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
