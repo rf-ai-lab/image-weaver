@@ -62,6 +62,23 @@ interface ImageEditorContextType {
 
 const ImageEditorContext = createContext<ImageEditorContextType | null>(null);
 
+const createStableHash = (value: string) => {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+};
+
+const createImageTrace = (image: string | null | undefined) => {
+  if (!image) return { hash: "null", length: 0, preview: "null" };
+  const sample = image.startsWith("data:") ? image.slice(Math.max(0, image.length - 4096)) : image;
+  const hash = createStableHash(sample);
+  const preview = image.length > 64 ? `${image.slice(0, 32)}...${image.slice(-32)}` : image;
+  return { hash, length: image.length, preview };
+};
+
 const makeFirstRow = (): ImageRow => ({
   id: crypto.randomUUID(),
   imageData: null,
