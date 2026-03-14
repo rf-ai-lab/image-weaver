@@ -1,8 +1,17 @@
 import { supabase } from "@/integrations/supabase/client";
 
-type GenerateImageParams = {
+export interface ReferenceImage {
   image: string;
-  prompt: string;
+  instruction: string;
+}
+
+export type ComposeImageParams = {
+  baseImage: string;
+  references: ReferenceImage[];
+};
+
+export type ComposeImageResult = {
+  imageUrl: string;
 };
 
 type FunctionInvokeError = {
@@ -13,13 +22,6 @@ type FunctionInvokeError = {
     text?: () => Promise<string>;
   };
 };
-
-export type GenerateImageResult = {
-  imageUrl: string;
-  usedFallback: boolean;
-};
-
-const BILLING_ERROR_REGEX = /insufficient credit|créditos insuficientes/i;
 
 async function parseInvokeError(error: FunctionInvokeError): Promise<{ status?: number; message: string }> {
   const status = error?.context?.status;
@@ -47,50 +49,111 @@ async function parseInvokeError(error: FunctionInvokeError): Promise<{ status?: 
   return { status, message };
 }
 
-function isBillingError(status?: number, message?: string) {
-  return status === 402 || BILLING_ERROR_REGEX.test(message || "");
-}
-
-export async function generateImage({
-  image,
-  prompt,
-}: GenerateImageParams): Promise<GenerateImageResult> {
-  if (!image) throw new Error("Imagem base é obrigatória.");
-  if (!prompt) throw new Error("Prompt é obrigatório.");
-
-  // Try generate-decoration (Replicate instruct-pix2pix)
-  const { data, error } = await supabase.functions.invoke("generate-decoration", {
-    body: { image, prompt },
+/**
+ * Step 1: Segment object from reference image using rembg (background removal).
+ * Returns a URL to the PNG with transparent background.
+ */
+async function segmentObject(image: string): Promise<string> {
+  const { data, error } = await supabase.functions.invoke("segment-object", {
+    body: { image },
   });
 
-  if (!error) {
-    if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada.");
-    return { imageUrl: data.imageUrl, usedFallback: false };
+  if (error) {
+    const parsed = await parseInvokeError(error as FunctionInvokeError);
+    throw new Error(parsed.message || "Erro ao segmentar objeto.");
   }
 
-  const parsedError = await parseInvokeError(error as FunctionInvokeError);
-  if (!isBillingError(parsedError.status, parsedError.message)) {
-    throw new Error(parsedError.message || "Erro ao gerar imagem.");
+  if (!data?.imageUrl) throw new Error("Nenhuma imagem segmentada retornada.");
+  return data.imageUrl;
+}
+
+/**
+ * Step 2: Compose segmented objects onto the base image using Gemini vision.
+ * Sends the base image + all segmented reference PNGs + instructions to the AI.
+ */
+async function composeWithAI(baseImage: string, segmentedRefs: { segmentedUrl: string; instruction: string }[]): Promise<string> {
+  // Build content array: base image first, then each segmented reference with its instruction
+  const content: any[] = [
+    { type: "text", text: "Esta é a IMAGEM BASE (cena principal). Preserve-a integralmente." },
+    { type: "image_url", image_url: { url: baseImage } },
+  ];
+
+  for (let i = 0; i < segmentedRefs.length; i++) {
+    const ref = segmentedRefs[i];
+    content.push({
+      type: "text",
+      text: `REFERÊNCIA ${i + 1}: ${ref.instruction}`,
+    });
+    content.push({
+      type: "image_url",
+      image_url: { url: ref.segmentedUrl },
+    });
   }
 
-  // Fallback to edit-image (Gemini) on billing error
-  const fallbackContent = [
-    { type: "image_url", image_url: { url: image } },
+  content.push({
+    type: "text",
+    text: "Componha a imagem final: insira APENAS os objetos das referências sobre a imagem base, respeitando perspectiva, escala e iluminação. NÃO altere nada da cena base que não foi mencionado.",
+  });
+
+  const { data, error } = await supabase.functions.invoke("edit-image", {
+    body: { content },
+  });
+
+  if (error) {
+    const parsed = await parseInvokeError(error as FunctionInvokeError);
+    throw new Error(parsed.message || "Erro ao compor imagem.");
+  }
+
+  if (!data?.imageUrl) throw new Error("Nenhuma imagem composta retornada.");
+  return data.imageUrl;
+}
+
+/**
+ * Main composition pipeline:
+ * 1. For each reference image → segment object (remove background)
+ * 2. Send base image + all segmented objects + instructions to Gemini for composition
+ * 3. Return the final composed image
+ */
+export async function composeImage({ baseImage, references }: ComposeImageParams): Promise<ComposeImageResult> {
+  if (!baseImage) throw new Error("Imagem base é obrigatória.");
+  if (!references || references.length === 0) throw new Error("Pelo menos uma imagem de referência é necessária.");
+
+  // Step 1: Segment all reference images in parallel
+  const segmentationResults = await Promise.all(
+    references.map(async (ref) => {
+      const segmentedUrl = await segmentObject(ref.image);
+      return { segmentedUrl, instruction: ref.instruction };
+    })
+  );
+
+  // Step 2: Compose all segmented objects onto the base image
+  const imageUrl = await composeWithAI(baseImage, segmentationResults);
+
+  return { imageUrl };
+}
+
+/**
+ * Simple refinement: send the current image + prompt to Gemini for text-based edits
+ * (e.g., "change flower color to red", "remove the left arrangement")
+ */
+export async function refineImage(currentImage: string, prompt: string): Promise<ComposeImageResult> {
+  if (!currentImage) throw new Error("Imagem atual é obrigatória.");
+  if (!prompt) throw new Error("Prompt é obrigatório.");
+
+  const content = [
+    { type: "image_url", image_url: { url: currentImage } },
     { type: "text", text: prompt },
   ];
 
-  const { data: fallbackData, error: fallbackError } = await supabase.functions.invoke("edit-image", {
-    body: { content: fallbackContent },
+  const { data, error } = await supabase.functions.invoke("edit-image", {
+    body: { content },
   });
 
-  if (fallbackError) {
-    const parsedFallbackError = await parseInvokeError(fallbackError as FunctionInvokeError);
-    throw new Error(parsedFallbackError.message || "Sem créditos e o fallback também falhou.");
+  if (error) {
+    const parsed = await parseInvokeError(error as FunctionInvokeError);
+    throw new Error(parsed.message || "Erro ao refinar imagem.");
   }
 
-  if (!fallbackData?.imageUrl) {
-    throw new Error("Nenhuma imagem retornada no fallback.");
-  }
-
-  return { imageUrl: fallbackData.imageUrl, usedFallback: true };
+  if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada.");
+  return { imageUrl: data.imageUrl };
 }
