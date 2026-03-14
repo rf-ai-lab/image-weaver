@@ -5,7 +5,9 @@ type LlmProvider = "openai" | "claude" | "gemini";
 type GenerateImageParams = {
   image: string;
   prompt: string;
+  sceneDescription?: string;
   llmProvider?: LlmProvider;
+  forceTextToImage?: boolean;
 };
 
 type FunctionInvokeError = {
@@ -20,6 +22,7 @@ type FunctionInvokeError = {
 export type GenerateImageResult = {
   imageUrl: string;
   usedFallback: boolean;
+  updatedSceneDescription?: string;
 };
 
 const BILLING_ERROR_REGEX = /insufficient credit|créditos insuficientes/i;
@@ -34,7 +37,7 @@ async function parseInvokeError(error: FunctionInvokeError): Promise<{ status?: 
       message = body?.error || body?.message || message;
       return { status, message };
     } catch {
-      // ignore JSON parsing failures
+      // ignore
     }
   }
 
@@ -43,7 +46,7 @@ async function parseInvokeError(error: FunctionInvokeError): Promise<{ status?: 
       const rawText = await error.context.text();
       if (rawText) message = rawText;
     } catch {
-      // ignore text parsing failures
+      // ignore
     }
   }
 
@@ -54,14 +57,30 @@ function isBillingError(status?: number, message?: string) {
   return status === 402 || BILLING_ERROR_REGEX.test(message || "");
 }
 
-export async function generateImageWithFallback({ image, prompt, llmProvider = "openai" }: GenerateImageParams): Promise<GenerateImageResult> {
+export async function generateImageWithFallback({
+  image,
+  prompt,
+  sceneDescription,
+  llmProvider = "openai",
+  forceTextToImage = false,
+}: GenerateImageParams): Promise<GenerateImageResult> {
   const { data, error } = await supabase.functions.invoke("generate-decoration", {
-    body: { image, prompt, llm_provider: llmProvider },
+    body: {
+      image,
+      prompt,
+      scene_description: sceneDescription || "",
+      llm_provider: llmProvider,
+      force_text_to_image: forceTextToImage,
+    },
   });
 
   if (!error) {
     if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada.");
-    return { imageUrl: data.imageUrl, usedFallback: false };
+    return {
+      imageUrl: data.imageUrl,
+      usedFallback: false,
+      updatedSceneDescription: data.updatedSceneDescription,
+    };
   }
 
   const parsedError = await parseInvokeError(error as FunctionInvokeError);
@@ -69,9 +88,15 @@ export async function generateImageWithFallback({ image, prompt, llmProvider = "
     throw new Error(parsedError.message || "Erro ao gerar imagem.");
   }
 
+  // Fallback to edit-image (Gemini)
   const fallbackContent = [
     { type: "image_url", image_url: { url: image } },
-    { type: "text", text: prompt },
+    {
+      type: "text",
+      text: sceneDescription
+        ? `Current scene: ${sceneDescription}\n\nNew instruction: ${prompt}`
+        : prompt,
+    },
   ];
 
   const { data: fallbackData, error: fallbackError } = await supabase.functions.invoke("edit-image", {
@@ -87,5 +112,9 @@ export async function generateImageWithFallback({ image, prompt, llmProvider = "
     throw new Error("Nenhuma imagem retornada no fallback.");
   }
 
-  return { imageUrl: fallbackData.imageUrl, usedFallback: true };
+  return {
+    imageUrl: fallbackData.imageUrl,
+    usedFallback: true,
+    updatedSceneDescription: sceneDescription,
+  };
 }

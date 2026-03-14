@@ -17,7 +17,14 @@ import { toast } from "sonner";
 type LlmProvider = "openai" | "claude" | "gemini";
 
 const Header = () => {
-  const { rows, isGenerating, setIsGenerating, addVersion } = useImageEditor();
+  const {
+    rows,
+    isGenerating,
+    setIsGenerating,
+    addVersion,
+    setCurrentSceneDescription,
+    resetEditCount,
+  } = useImageEditor();
   const navigate = useNavigate();
   const location = useLocation();
   const isSetup = location.pathname === "/setup";
@@ -33,13 +40,17 @@ const Header = () => {
     setIsGenerating(true);
     try {
       const initialPrompt = primary.instructions || "Preserve the original decoration of this wedding venue";
-      const { imageUrl, usedFallback } = await generateImageWithFallback({
+      const { imageUrl, usedFallback, updatedSceneDescription } = await generateImageWithFallback({
         image: primary.imageData,
         prompt: initialPrompt,
         llmProvider,
       });
 
-      addVersion(imageUrl);
+      addVersion(imageUrl, initialPrompt);
+      if (updatedSceneDescription) {
+        setCurrentSceneDescription(updatedSceneDescription);
+      }
+      resetEditCount();
       navigate("/editor");
       if (usedFallback) {
         toast.info("Sem créditos no provedor atual: usamos fallback automático.");
@@ -57,26 +68,13 @@ const Header = () => {
   return (
     <header className="flex items-center justify-between border-b border-border bg-card px-6 py-3">
       <nav className="flex items-center gap-4">
-        <NavLink
-          to="/"
-          className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          activeClassName="text-foreground"
-          end
-        >
+        <NavLink to="/" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground" activeClassName="text-foreground" end>
           Projetos
         </NavLink>
-        <NavLink
-          to="/setup"
-          className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          activeClassName="text-foreground"
-        >
+        <NavLink to="/setup" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground" activeClassName="text-foreground">
           Projeto em Andamento
         </NavLink>
-        <NavLink
-          to="/editor"
-          className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          activeClassName="text-foreground"
-        >
+        <NavLink to="/editor" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground" activeClassName="text-foreground">
           Editor
         </NavLink>
       </nav>
@@ -96,13 +94,9 @@ const Header = () => {
           </Select>
           <Button onClick={handleGenerate} disabled={isGenerating} size="sm">
             {isGenerating ? (
-              <>
-                <Loader2 className="animate-spin" /> Gerando...
-              </>
+              <><Loader2 className="animate-spin" /> Gerando...</>
             ) : (
-              <>
-                <Sparkles /> Gerar Primeira Versão
-              </>
+              <><Sparkles /> Gerar Primeira Versão</>
             )}
           </Button>
         </div>
