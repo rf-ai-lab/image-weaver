@@ -7,12 +7,7 @@ import { toast } from "sonner";
 import { NavLink } from "@/components/NavLink";
 
 const Header = () => {
-  const {
-    rows,
-    isGenerating,
-    setIsGenerating,
-    addVersion,
-  } = useImageEditor();
+  const { rows, isGenerating, setIsGenerating, addVersion } = useImageEditor();
   const navigate = useNavigate();
   const location = useLocation();
   const isSetup = location.pathname === "/setup";
@@ -37,12 +32,19 @@ const Header = () => {
 
     setIsGenerating(true);
     try {
-      const { imageUrl } = await composeImage({
+      const { imageUrl, layers, compositionBaseImage } = await composeImage({
         baseImage: primary.imageData,
         references,
       });
 
-      addVersion(imageUrl, `Composição: ${references.map((r) => r.instruction).join(" + ")}`);
+      addVersion(
+        imageUrl,
+        `Composição: ${references.map((r) => r.instruction).join(" + ")}`,
+        {
+          objectLayers: layers,
+          compositionBaseImage,
+        }
+      );
       navigate("/editor");
       toast.success("Composição gerada!");
     } catch (e: unknown) {
@@ -72,9 +74,13 @@ const Header = () => {
         <div className="flex items-center gap-2">
           <Button onClick={handleCompose} disabled={isGenerating} size="sm">
             {isGenerating ? (
-              <><Loader2 className="animate-spin" /> Compondo...</>
+              <>
+                <Loader2 className="animate-spin" /> Compondo...
+              </>
             ) : (
-              <><Sparkles /> Compor Decoração</>
+              <>
+                <Sparkles /> Compor Decoração
+              </>
             )}
           </Button>
         </div>

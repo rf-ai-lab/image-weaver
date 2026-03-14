@@ -1,5 +1,10 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { LLMProvider } from "@/pages/Editor";
+import {
+  composeImageFromLayers,
+  createObjectLayerFromSegmented,
+  type ObjectLayer,
+} from "@/lib/object-composition";
 
 export interface ReferenceImage {
   image: string;
@@ -13,6 +18,22 @@ export type ComposeImageParams = {
 
 export type ComposeImageResult = {
   imageUrl: string;
+  layers: ObjectLayer[];
+  compositionBaseImage: string;
+};
+
+export type AppendReferenceObjectParams = {
+  compositionBaseImage: string;
+  existingLayers: ObjectLayer[];
+  referenceImage: string;
+  instruction: string;
+};
+
+export type AppendReferenceObjectResult = {
+  imageUrl: string;
+  layers: ObjectLayer[];
+  addedLayer: ObjectLayer;
+  compositionBaseImage: string;
 };
 
 type FunctionInvokeError = {
@@ -51,7 +72,7 @@ async function parseInvokeError(error: FunctionInvokeError): Promise<{ status?: 
 }
 
 /**
- * Step 1: Segment object from reference image using rembg (background removal).
+ * Segment object from reference image using rembg (background removal).
  */
 async function segmentObject(image: string): Promise<string> {
   const { data, error } = await supabase.functions.invoke("segment-object", {
@@ -68,78 +89,81 @@ async function segmentObject(image: string): Promise<string> {
 }
 
 /**
- * Step 2: Compose segmented objects onto the base image using Gemini vision.
- */
-async function composeWithAI(baseImage: string, segmentedRefs: { segmentedUrl: string; instruction: string }[]): Promise<string> {
-  const content: any[] = [
-    { type: "text", text: "Esta é a IMAGEM BASE (cena principal). Preserve-a integralmente." },
-    { type: "image_url", image_url: { url: baseImage } },
-  ];
-
-  for (let i = 0; i < segmentedRefs.length; i++) {
-    const ref = segmentedRefs[i];
-    content.push({
-      type: "text",
-      text: `REFERÊNCIA ${i + 1}: ${ref.instruction}`,
-    });
-    content.push({
-      type: "image_url",
-      image_url: { url: ref.segmentedUrl },
-    });
-  }
-
-  content.push({
-    type: "text",
-    text: "Componha a imagem final: insira APENAS os objetos das referências sobre a imagem base, respeitando perspectiva, escala e iluminação. NÃO altere nada da cena base que não foi mencionado.",
-  });
-
-  const { data, error } = await supabase.functions.invoke("edit-image", {
-    body: { content },
-  });
-
-  if (error) {
-    const parsed = await parseInvokeError(error as FunctionInvokeError);
-    throw new Error(parsed.message || "Erro ao compor imagem.");
-  }
-
-  if (!data?.imageUrl) throw new Error("Nenhuma imagem composta retornada.");
-  return data.imageUrl;
-}
-
-/**
- * Main composition pipeline.
+ * Main composition pipeline using deterministic visual composition.
+ * Keeps base scene fixed and inserts segmented objects as layers.
  */
 export async function composeImage({ baseImage, references }: ComposeImageParams): Promise<ComposeImageResult> {
   if (!baseImage) throw new Error("Imagem base é obrigatória.");
   if (!references || references.length === 0) throw new Error("Pelo menos uma imagem de referência é necessária.");
 
-  const segmentationResults = await Promise.all(
-    references.map(async (ref) => {
-      const segmentedUrl = await segmentObject(ref.image);
-      return { segmentedUrl, instruction: ref.instruction };
-    })
-  );
+  const layers: ObjectLayer[] = [];
 
-  const imageUrl = await composeWithAI(baseImage, segmentationResults);
-  return { imageUrl };
+  for (const [index, ref] of references.entries()) {
+    const segmentedUrl = await segmentObject(ref.image);
+    const layer = await createObjectLayerFromSegmented({
+      segmentedImage: segmentedUrl,
+      instruction: ref.instruction,
+      step: index + 1,
+      existingLayers: layers,
+      baseImage,
+    });
+    layers.push(layer);
+  }
+
+  const imageUrl = await composeImageFromLayers(baseImage, layers);
+
+  return {
+    imageUrl,
+    layers,
+    compositionBaseImage: baseImage,
+  };
 }
 
 /**
- * Refinement: send current image + prompt + optional reference image to AI.
- * Supports LLM provider selection.
+ * Add a new reference object into an existing composition stack.
+ */
+export async function appendReferenceObjectToComposition({
+  compositionBaseImage,
+  existingLayers,
+  referenceImage,
+  instruction,
+}: AppendReferenceObjectParams): Promise<AppendReferenceObjectResult> {
+  if (!compositionBaseImage) throw new Error("Imagem base da composição é obrigatória.");
+  if (!referenceImage) throw new Error("Imagem de referência é obrigatória.");
+
+  const segmentedUrl = await segmentObject(referenceImage);
+  const addedLayer = await createObjectLayerFromSegmented({
+    segmentedImage: segmentedUrl,
+    instruction,
+    step: existingLayers.length + 1,
+    existingLayers,
+    baseImage: compositionBaseImage,
+  });
+
+  const layers = [...existingLayers, addedLayer];
+  const imageUrl = await composeImageFromLayers(compositionBaseImage, layers);
+
+  return {
+    imageUrl,
+    layers,
+    addedLayer,
+    compositionBaseImage,
+  };
+}
+
+/**
+ * AI fallback refinement for free-form edits not tied to tracked objects.
  */
 export async function refineImage(
   currentImage: string,
   prompt: string,
   referenceImage?: string,
   llmProvider?: LLMProvider
-): Promise<ComposeImageResult> {
+): Promise<{ imageUrl: string }> {
   if (!currentImage) throw new Error("Imagem atual é obrigatória.");
   if (!prompt && !referenceImage) throw new Error("Prompt ou imagem de referência é obrigatório.");
 
-  const content: any[] = [
-    { type: "image_url", image_url: { url: currentImage } },
-  ];
+  const content: any[] = [{ type: "image_url", image_url: { url: currentImage } }];
 
   if (referenceImage) {
     content.push({
