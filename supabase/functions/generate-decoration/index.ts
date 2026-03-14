@@ -114,7 +114,7 @@ async function optimizePrompt(instruction: string, provider: LlmProvider): Promi
 async function pollPrediction(id: string, token: string, maxAttempts = 60): Promise<any> {
   for (let i = 0; i < maxAttempts; i++) {
     const res = await fetch(`${REPLICATE_API}/predictions/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Token ${token}` },
     });
     const data = await res.json();
 
@@ -128,6 +128,11 @@ async function pollPrediction(id: string, token: string, maxAttempts = 60): Prom
   throw new Error("Timeout: a geração demorou demais.");
 }
 
+function normalizeReplicateToken(rawToken: string | undefined): string {
+  if (!rawToken) return "";
+  return rawToken.trim().replace(/^Bearer\s+/i, "").replace(/^['"]|['"]$/g, "");
+}
+
 // ── Main handler ────────────────────────────────────────────────────────────
 
 serve(async (req) => {
@@ -136,9 +141,9 @@ serve(async (req) => {
   }
 
   try {
-    const REPLICATE_API_TOKEN = Deno.env.get("REPLICATE_API_TOKEN");
+    const REPLICATE_API_TOKEN = normalizeReplicateToken(Deno.env.get("REPLICATE_API_TOKEN"));
     if (!REPLICATE_API_TOKEN) {
-      throw new Error("REPLICATE_API_TOKEN não está configurado.");
+      throw new Error("REPLICATE_API_TOKEN não está configurado ou está vazio.");
     }
 
     const { image, prompt, llm_provider = "openai" } = await req.json();
@@ -164,7 +169,7 @@ serve(async (req) => {
     const createRes = await fetch(`${REPLICATE_API}/models/timothybrooks/instruct-pix2pix/predictions`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
+        Authorization: `Token ${REPLICATE_API_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
