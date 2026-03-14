@@ -1,8 +1,7 @@
-import { useImageEditor, LLM_MODELS } from "@/contexts/ImageEditorContext";
+import { useImageEditor } from "@/contexts/ImageEditorContext";
 import { composeImage, type ReferenceImage } from "@/lib/image-generation";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { NavLink } from "@/components/NavLink";
@@ -13,14 +12,10 @@ const Header = () => {
     isGenerating,
     setIsGenerating,
     addVersion,
-    selectedModel,
-    setSelectedModel,
   } = useImageEditor();
   const navigate = useNavigate();
   const location = useLocation();
   const isSetup = location.pathname === "/setup";
-
-  const modelId = LLM_MODELS.find((m) => m.value === selectedModel)?.model || LLM_MODELS[0].model;
 
   const handleCompose = async () => {
     const primary = rows.find((r) => r.isPrimary);
@@ -45,7 +40,6 @@ const Header = () => {
       const { imageUrl } = await composeImage({
         baseImage: primary.imageData,
         references,
-        model: modelId,
       });
 
       addVersion(imageUrl, `Composição: ${references.map((r) => r.instruction).join(" + ")}`);
@@ -76,18 +70,6 @@ const Header = () => {
 
       {isSetup && (
         <div className="flex items-center gap-2">
-          <Select value={selectedModel} onValueChange={(v) => setSelectedModel(v as any)}>
-            <SelectTrigger className="h-8 w-[150px] text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {LLM_MODELS.map((m) => (
-                <SelectItem key={m.value} value={m.value} className="text-xs">
-                  {m.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           <Button onClick={handleCompose} disabled={isGenerating} size="sm">
             {isGenerating ? (
               <><Loader2 className="animate-spin" /> Compondo...</>

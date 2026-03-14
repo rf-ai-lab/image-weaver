@@ -1,11 +1,10 @@
-import { useState, useRef } from "react";
-import { useImageEditor, LLM_MODELS } from "@/contexts/ImageEditorContext";
+import { useState, useRef, useCallback } from "react";
+import { useImageEditor } from "@/contexts/ImageEditorContext";
 import VersionHistory from "@/components/VersionHistory";
 import DrawingOverlay from "@/components/DrawingOverlay";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
+import { Loader2, Send, Undo2, PenTool, X } from "lucide-react";
 import { toast } from "sonner";
 import { refineImage } from "@/lib/image-generation";
 
@@ -19,36 +18,21 @@ const Editor = () => {
     setCurrentVersion,
     isGenerating,
     setIsGenerating,
-    selectedModel,
-    setSelectedModel,
   } = useImageEditor();
 
   const [prompt, setPrompt] = useState("");
   const [isAnnotating, setIsAnnotating] = useState(false);
   const [annotatedImage, setAnnotatedImage] = useState<string | null>(null);
   const [selectedSetupImageIndex, setSelectedSetupImageIndex] = useState<number | null>(null);
-  const [attachedImage, setAttachedImage] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const setupImages = rows.filter((r) => Boolean(r.imageData));
   const versionImage = versions[currentVersionIndex]?.imageData;
   const selectedSetupImage =
     selectedSetupImageIndex !== null ? setupImages[selectedSetupImageIndex]?.imageData ?? null : null;
   const currentImage = selectedSetupImage || versionImage;
+
+  // Always use the LAST generated version as base for refinement
   const lastGeneratedImage = versions.length > 0 ? versions[versions.length - 1].imageData : null;
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setAttachedImage(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  };
-
-  const modelId = LLM_MODELS.find((m) => m.value === selectedModel)?.model || LLM_MODELS[0].model;
 
   const handleRefine = async () => {
     if (!prompt.trim()) return;
@@ -69,12 +53,11 @@ const Editor = () => {
 
     setIsGenerating(true);
     try {
-      const { imageUrl } = await refineImage(imageToSend, prompt.trim(), attachedImage || undefined, modelId);
+      const { imageUrl } = await refineImage(imageToSend, prompt.trim());
       addVersion(imageUrl, prompt);
       setSelectedSetupImageIndex(null);
       setPrompt("");
       setAnnotatedImage(null);
-      setAttachedImage(null);
       toast.success("Imagem atualizada!");
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Erro ao editar imagem";
@@ -142,33 +125,9 @@ const Editor = () => {
 
       <div className="border-t border-border bg-card px-6 py-4">
         <div className="mx-auto max-w-2xl">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">
-              Refinamento — envie texto e/ou imagem de referência para ajustar a composição.
-            </p>
-            <Select value={selectedModel} onValueChange={(v) => setSelectedModel(v as any)}>
-              <SelectTrigger className="h-7 w-[150px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LLM_MODELS.map((m) => (
-                  <SelectItem key={m.value} value={m.value} className="text-xs">
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {attachedImage && (
-            <div className="mb-2 flex items-center gap-2">
-              <img src={attachedImage} alt="Anexo" className="h-12 w-12 rounded border border-border object-cover" />
-              <button onClick={() => setAttachedImage(null)} className="text-xs text-muted-foreground hover:text-foreground">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          )}
-
+          <p className="mb-2 text-xs text-muted-foreground">
+            Refinamento por texto — ajuste cores, posições e detalhes da composição atual.
+          </p>
           <div className="flex items-end gap-2">
             <Button variant="outline" size="icon" onClick={() => { setSelectedSetupImageIndex(null); undoVersion(); }} disabled={currentVersionIndex <= 0} title="Desfazer">
               <Undo2 className="h-4 w-4" />
@@ -176,15 +135,11 @@ const Editor = () => {
             <Button variant={annotatedImage ? "default" : "outline"} size="icon" onClick={() => setIsAnnotating(true)} disabled={isGenerating || !currentImage} title="Marcar na imagem">
               <PenTool className="h-4 w-4" />
             </Button>
-            <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
-            <Button variant={attachedImage ? "default" : "outline"} size="icon" onClick={() => fileInputRef.current?.click()} disabled={isGenerating} title="Anexar imagem de referência">
-              <ImagePlus className="h-4 w-4" />
-            </Button>
             <Textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={attachedImage ? "Descreva como usar a imagem anexada..." : annotatedImage ? "Descreva o que alterar nas áreas marcadas..." : "Ex: mude a cor das flores para rosa, remova o arranjo da esquerda..."}
+              placeholder={annotatedImage ? "Descreva o que alterar nas áreas marcadas..." : "Ex: mude a cor das flores para rosa, remova o arranjo da esquerda..."}
               className="min-h-[44px] max-h-[120px] resize-none text-sm"
               disabled={isGenerating}
             />
