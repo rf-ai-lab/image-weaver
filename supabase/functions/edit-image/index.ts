@@ -77,6 +77,10 @@ PRESERVAÇÃO DA IMAGEM PRINCIPAL:
 - O cenário, fundo, iluminação e temperatura de cor devem permanecer IDÊNTICOS ao original.
 - Todos os elementos NÃO mencionados pelo usuário devem permanecer EXATAMENTE como estão.
 
+PRIORIDADE DE CONFLITO (CRÍTICA):
+- Se houver conflito entre "preservar a cena" e "substituir o objeto alvo", a SUBSTITUIÇÃO DO ALVO tem prioridade absoluta.
+- Ao receber instrução de troca/substituição, é proibido retornar imagem praticamente igual sem alteração perceptível no alvo.
+
 PRESERVAÇÃO DE ENQUADRAMENTO, DISTÂNCIA E LENTE (REGRA CRÍTICA):
 - Distância da câmera ao cenário é IMUTÁVEL, salvo pedido explícito do usuário.
 - É PROIBIDO aplicar zoom in, zoom out, crop, reframe, pan, tilt, mudança de lente, mudança de distância focal percebida ou aproximação da câmera.
