@@ -198,17 +198,45 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
         outputImageHash?: string;
       }
     ) => {
+      const incomingTrace = createImageTrace(imageData);
+      console.info("[ReferenceEditDebug] context:addVersion:input", {
+        timestamp: new Date().toISOString(),
+        requestId: metadata?.requestId,
+        pipelineBranch: metadata?.pipelineBranch,
+        prompt,
+        imageUrlSentToAddVersionHash: incomingTrace.hash,
+        imageUrlSentToAddVersionLength: incomingTrace.length,
+        imageUrlSentToAddVersionPreview: incomingTrace.preview,
+        inputImageHash: metadata?.inputImageHash,
+        outputImageHash: metadata?.outputImageHash,
+      });
+
       setVersions((prev) => {
-        const next = [
-          ...prev,
-          {
-            label: `Versão ${prev.length + 1}`,
-            imageData,
-            prompt,
-            objectLayers: metadata?.objectLayers,
-            compositionBaseImage: metadata?.compositionBaseImage,
-          },
-        ];
+        const nextVersion: ImageVersion = {
+          label: `Versão ${prev.length + 1}`,
+          imageData,
+          prompt,
+          objectLayers: metadata?.objectLayers,
+          compositionBaseImage: metadata?.compositionBaseImage,
+          requestId: metadata?.requestId,
+          pipelineBranch: metadata?.pipelineBranch,
+          inputImageHash: metadata?.inputImageHash,
+          outputImageHash: metadata?.outputImageHash,
+        };
+
+        const next = [...prev, nextVersion];
+        const storedTrace = createImageTrace(nextVersion.imageData);
+
+        console.info("[ReferenceEditDebug] context:addVersion:stored", {
+          timestamp: new Date().toISOString(),
+          requestId: nextVersion.requestId,
+          label: nextVersion.label,
+          storedImageHash: storedTrace.hash,
+          storedImageLength: storedTrace.length,
+          storedImagePreview: storedTrace.preview,
+          versionsAfterInsert: next.length,
+        });
+
         setCurrentVersionIndex(next.length - 1);
         return next;
       });
