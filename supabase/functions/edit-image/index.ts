@@ -6,23 +6,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-
-  try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
-
-    const { content, model } = await req.json();
-    if (!content || !Array.isArray(content)) {
-      throw new Error("content array is required");
-    }
-
-    const systemPrompt = {
-      type: "text",
-      text: `VOCÊ É UM EDITOR DE IMAGENS PROFISSIONAL. SIGA ESTAS REGRAS COM RIGOR ABSOLUTO:
+const SYSTEM_PROMPT = `VOCÊ É UM EDITOR DE IMAGENS PROFISSIONAL. SIGA ESTAS REGRAS COM RIGOR ABSOLUTO:
 
 IDENTIFICAÇÃO DA IMAGEM PRINCIPAL (REGRA FUNDAMENTAL):
 - A PRIMEIRA image_url enviada pelo usuário é SEMPRE a FOTO PRINCIPAL (TEMPLATE FIXO).
@@ -73,71 +57,149 @@ CHECKLIST FINAL OBRIGATÓRIO (ANTES DE ENTREGAR):
 
 RESULTADO:
 - A imagem final deve parecer foto real, coerente e sem artefatos visíveis.
-- Mantenha qualidade e resolução equivalentes à imagem original.`,
-    };
+- Mantenha qualidade e resolução equivalentes à imagem original.`;
 
-    const augmentedContent = [systemPrompt, ...content];
+// Map provider key to actual model + gateway config
+const MODEL_MAP: Record<string, { gateway: "lovable" | "anthropic"; model: string }> = {
+  openai: { gateway: "lovable", model: "openai/gpt-5" },
+  gemini: { gateway: "lovable", model: "google/gemini-3.1-flash-image-preview" },
+  claude: { gateway: "anthropic", model: "claude-sonnet-4-20250514" },
+};
 
-    const selectedModel = model || "google/gemini-3.1-flash-image-preview";
-    console.log(`Calling AI gateway with ${selectedModel}...`);
+async function callLovableGateway(apiKey: string, model: string, content: any[]) {
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content }],
+      modalities: ["image", "text"],
+    }),
+  });
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: selectedModel,
-        messages: [
-          {
-            role: "user",
-            content: augmentedContent,
-          },
-        ],
-        modalities: ["image", "text"],
-      }),
-    });
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Lovable gateway error:", response.status, errorText);
+    if (response.status === 429) throw { status: 429, message: "Limite de requisições excedido. Tente novamente em alguns segundos." };
+    if (response.status === 402) throw { status: 402, message: "Créditos insuficientes. Adicione créditos ao seu workspace." };
+    throw new Error(`AI gateway error: ${response.status}`);
+  }
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
+  const data = await response.json();
+  const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+  const textResponse = data.choices?.[0]?.message?.content;
+  return { imageUrl, textResponse };
+}
 
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Limite de requisições excedido. Tente novamente em alguns segundos." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+async function callAnthropic(apiKey: string, model: string, content: any[]) {
+  // Convert content array to Anthropic format
+  const anthropicContent: any[] = [];
+  for (const item of content) {
+    if (item.type === "text") {
+      anthropicContent.push({ type: "text", text: item.text });
+    } else if (item.type === "image_url") {
+      const url = item.image_url?.url;
+      if (url?.startsWith("data:")) {
+        const match = url.match(/^data:(image\/[^;]+);base64,(.+)$/);
+        if (match) {
+          anthropicContent.push({
+            type: "image",
+            source: { type: "base64", media_type: match[1], data: match[2] },
+          });
+        }
+      } else if (url) {
+        anthropicContent.push({
+          type: "image",
+          source: { type: "url", url },
+        });
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Créditos insuficientes. Adicione créditos ao seu workspace." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
+    }
+  }
 
-      throw new Error(`AI gateway error: ${response.status}`);
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4096,
+      messages: [{ role: "user", content: anthropicContent }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Anthropic error:", response.status, errorText);
+    if (response.status === 429) throw { status: 429, message: "Limite de requisições do Claude excedido." };
+    throw new Error(`Anthropic API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  // Claude returns text; it doesn't generate images directly.
+  // Extract any image URLs from the text response if present.
+  const textResponse = data.content?.map((c: any) => c.text).join("\n") || "";
+  return { imageUrl: null, textResponse };
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+
+    const { content, model: providerKey } = await req.json();
+    if (!content || !Array.isArray(content)) {
+      throw new Error("content array is required");
     }
 
-    const data = await response.json();
-    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-    const textResponse = data.choices?.[0]?.message?.content;
+    const provider = providerKey || "gemini";
+    const config = MODEL_MAP[provider] || MODEL_MAP["gemini"];
 
-    if (!imageUrl) {
-      console.error("No image in response:", JSON.stringify(data).substring(0, 500));
+    console.log(`Processing with provider: ${provider}, model: ${config.model}`);
+
+    const systemPromptItem = { type: "text", text: SYSTEM_PROMPT };
+    const augmentedContent = [systemPromptItem, ...content];
+
+    let result: { imageUrl: string | null; textResponse: string };
+
+    if (config.gateway === "anthropic") {
+      if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY não está configurado.");
+      result = await callAnthropic(ANTHROPIC_API_KEY, config.model, augmentedContent);
+    } else {
+      if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY não está configurado.");
+      result = await callLovableGateway(LOVABLE_API_KEY, config.model, augmentedContent);
+    }
+
+    if (!result.imageUrl) {
+      // If Claude was used (no image generation), return text response
+      if (config.gateway === "anthropic") {
+        return new Response(
+          JSON.stringify({ error: "Claude não gera imagens diretamente. Use OpenAI ou Gemini para geração de imagens, ou use Claude apenas para análise textual.", text: result.textResponse }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       throw new Error("Nenhuma imagem foi gerada pela IA");
     }
 
-    return new Response(JSON.stringify({ imageUrl, text: textResponse }), {
+    return new Response(JSON.stringify({ imageUrl: result.imageUrl, text: result.textResponse }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (e) {
+  } catch (e: any) {
     console.error("edit-image error:", e);
-    const message = e instanceof Error ? e.message : "Erro desconhecido";
+    const status = e?.status || 500;
+    const message = e?.message || (e instanceof Error ? e.message : "Erro desconhecido");
     return new Response(JSON.stringify({ error: message }), {
-      status: 500,
+      status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
-

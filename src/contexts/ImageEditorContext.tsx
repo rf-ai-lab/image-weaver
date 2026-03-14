@@ -23,12 +23,12 @@ export interface Project {
   currentVersionIndex: number;
 }
 
-export type LLMModel = "google/gemini-3.1-flash-image-preview" | "google/gemini-3-pro-image-preview" | "google/gemini-2.5-flash";
+export type LLMModel = "openai" | "gemini" | "claude";
 
 export const LLM_OPTIONS: { value: LLMModel; label: string }[] = [
-  { value: "google/gemini-3.1-flash-image-preview", label: "Gemini Flash Image" },
-  { value: "google/gemini-3-pro-image-preview", label: "Gemini Pro Image" },
-  { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+  { value: "openai", label: "OpenAI" },
+  { value: "gemini", label: "Gemini" },
+  { value: "claude", label: "Claude" },
 ];
 
 interface ImageEditorContextType {
@@ -73,7 +73,7 @@ export const ImageEditorProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [versions, setVersions] = useState<ImageVersion[]>([]);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<LLMModel>("google/gemini-3.1-flash-image-preview");
+  const [selectedModel, setSelectedModel] = useState<LLMModel>("gemini");
   const [loadingProjects, setLoadingProjects] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
