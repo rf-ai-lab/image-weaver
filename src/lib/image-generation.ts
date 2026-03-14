@@ -72,8 +72,7 @@ async function segmentObject(image: string): Promise<string> {
  * Step 2: Compose segmented objects onto the base image using Gemini vision.
  * Sends the base image + all segmented reference PNGs + instructions to the AI.
  */
-async function composeWithAI(baseImage: string, segmentedRefs: { segmentedUrl: string; instruction: string }[]): Promise<string> {
-  // Build content array: base image first, then each segmented reference with its instruction
+async function composeWithAI(baseImage: string, segmentedRefs: { segmentedUrl: string; instruction: string }[], model?: string): Promise<string> {
   const content: any[] = [
     { type: "text", text: "Esta é a IMAGEM BASE (cena principal). Preserve-a integralmente." },
     { type: "image_url", image_url: { url: baseImage } },
@@ -97,7 +96,7 @@ async function composeWithAI(baseImage: string, segmentedRefs: { segmentedUrl: s
   });
 
   const { data, error } = await supabase.functions.invoke("edit-image", {
-    body: { content },
+    body: { content, model },
   });
 
   if (error) {
