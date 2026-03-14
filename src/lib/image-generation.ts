@@ -110,7 +110,7 @@ function toImageDebugId(image: string | null | undefined): string {
   return `url:${image}`;
 }
 
-function logDebug(event: string, payload: Record<string, unknown>) {
+function logDebug(event: string, payload: unknown) {
   console.info(`${DEBUG_PREFIX} ${event}`, payload);
 }
 
