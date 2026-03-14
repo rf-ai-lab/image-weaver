@@ -194,8 +194,6 @@ RESULTADO:
 
     const augmentedContent = [systemPrompt, ...content];
 
-    console.log(`Calling AI gateway with model: ${model}...`);
-
     const body: Record<string, unknown> = {
       model,
       messages: [
@@ -205,6 +203,18 @@ RESULTADO:
         },
       ],
     };
+
+    console.log("[ReferenceEditDebug][edit-image] model-request", {
+      timestamp: new Date().toISOString(),
+      requestId: effectiveRequestId,
+      operation: operation || "unspecified",
+      model,
+      payloadImageCount: imageUrls.length,
+      payloadTextCount: content.filter((item) => item?.type === "text").length,
+      payloadTextPreview: content
+        .filter((item) => item?.type === "text")
+        .map((item) => String(item.text || "").slice(0, 200)),
+    });
 
     // Only Gemini image models support modalities
     if (model.includes("gemini") && model.includes("image")) {
