@@ -437,6 +437,8 @@ export async function replaceLayerInComposition({
   logDebug("replaceLayerInComposition:done", {
     targetLayerIndex,
     targetLayerLabel: replacedLayer.label,
+    compositionMode: "replace_real",
+    cleanupRegion,
     imageDataChanged,
     renderLayerUsesUpdatedData,
     oldLayerImageId: toImageDebugId(oldLayer.imageData),
