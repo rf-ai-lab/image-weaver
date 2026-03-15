@@ -438,6 +438,7 @@ export async function replaceLayerInComposition({
     compositionMode: "replace_real",
     cleanupRegions: [cleanupRegion],
     debugSource: "replaceLayerInComposition",
+    debugVisualCleanup: DEBUG_VISUAL_CLEANUP,
   });
 
   logDebug("replaceLayerInComposition:done", {
