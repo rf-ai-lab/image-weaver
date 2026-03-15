@@ -49,39 +49,58 @@ async function editWithReplicate(apiKey: string, currentImage: string, prompt: s
 
   const input: Record<string, unknown> = {
     image: baseDataUrl,
-    prompt,
+    prompt: referenceImage
+      ? `${prompt}. Incorporate the object from the reference image maintaining the same position and scale as the original object in the scene.`
+      : prompt,
     num_inference_steps: 28,
     guidance_scale: 60,
   };
 
   if (referenceImage) {
-    const refDataUrl = await toBase64DataUrl(referenceImage);
-    input.prompt = `${prompt}. Incorporate the object from the reference image maintaining the same position and scale as the original object in the scene.`;
-    input.reference_image = refDataUrl;
+    input.reference_image = await toBase64DataUrl(referenceImage);
   }
 
-  const response = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-fill-pro/predictions", {
+  const createResponse = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-fill-pro/predictions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "Prefer": "wait",
     },
     body: JSON.stringify({ input }),
   });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Replicate error ${response.status}: ${error}`);
+  if (!createResponse.ok) {
+    const error = await createResponse.text();
+    throw new Error(`Replicate error ${createResponse.status}: ${error}`);
   }
 
-  const prediction = await response.json();
-  if (prediction.status === "failed") throw new Error(`Replicate falhou: ${prediction.error}`);
+  const prediction = await createResponse.json();
+  const predictionId = prediction.id;
+  if (!predictionId) throw new Error("Replicate não retornou ID da predição");
 
-  const outputUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
-  if (!outputUrl) throw new Error("Nenhuma imagem retornada pelo Replicate");
+  // Polling até 120 segundos
+  for (let i = 0; i < 40; i++) {
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
-  return await toBase64DataUrl(outputUrl);
+    const pollResponse = await fetch(`https://api.replicate.com/v1/predictions/${predictionId}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    const result = await pollResponse.json();
+    console.log(`Replicate poll ${i + 1}: ${result.status}`);
+
+    if (result.status === "succeeded") {
+      const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
+      if (!outputUrl) throw new Error("Nenhuma imagem retornada pelo Replicate");
+      return await toBase64DataUrl(outputUrl);
+    }
+
+    if (result.status === "failed") {
+      throw new Error(`Replicate falhou: ${result.error}`);
+    }
+  }
+
+  throw new Error("Replicate timeout — geração demorou mais de 2 minutos");
 }
 
 serve(async (req) => {
