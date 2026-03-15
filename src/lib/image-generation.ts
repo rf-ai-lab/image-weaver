@@ -360,7 +360,10 @@ export async function appendReferenceObjectToComposition({
   });
 
   const layers = [...existingLayers, addedLayer];
-  const imageUrl = await composeImageFromLayers(compositionBaseImage, layers);
+  const imageUrl = await composeImageFromLayers(compositionBaseImage, layers, {
+    compositionMode: "overlay_simple",
+    debugSource: "appendReferenceObjectToComposition",
+  });
 
   logDebug("appendReferenceObjectToComposition", {
     instruction,
