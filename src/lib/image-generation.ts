@@ -586,8 +586,25 @@ export async function handleReferenceImageEdit({
     const command = parseObjectTransformPrompt(instruction, existingLayers);
 
     if (command) {
+      const oldBBox = { ...existingLayers[intentResult.matchedLayerIndex].bbox };
       const { layers: updatedLayers } = applyObjectTransformCommand(existingLayers, command);
-      const imageUrl = await recompose(compositionBaseImage!, updatedLayers);
+      const newBBox = { ...updatedLayers[intentResult.matchedLayerIndex].bbox };
+      const cleanupRegion = mergeBBoxes(oldBBox, newBBox);
+
+      logDebug("transformLayerInComposition:bboxUpdate", {
+        requestId: effectiveRequestId,
+        targetLayerIndex: intentResult.matchedLayerIndex,
+        targetLabel: intentResult.targetLabel,
+        oldBBox,
+        newBBox,
+        cleanupRegion,
+      });
+
+      const imageUrl = await recompose(compositionBaseImage!, updatedLayers, {
+        compositionMode: "replace_real",
+        cleanupRegions: [cleanupRegion],
+        debugSource: "transformLayerInComposition",
+      });
 
       const outputTrace = createImageTraceSnapshot(imageUrl);
       const debug = buildDebugInfo({
