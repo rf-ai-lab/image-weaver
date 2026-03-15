@@ -330,7 +330,10 @@ export async function composeImage({ baseImage, references }: ComposeImageParams
     layers.push(layer);
   }
 
-  const imageUrl = await composeImageFromLayers(baseImage, layers);
+  const imageUrl = await composeImageFromLayers(baseImage, layers, {
+    compositionMode: "overlay_simple",
+    debugSource: "composeImage",
+  });
 
   return { imageUrl, layers, compositionBaseImage: baseImage };
 }
