@@ -380,6 +380,7 @@ export interface ComposeImageFromLayersOptions {
   cleanupRegions?: NormalizedBBox[];
   compositionMode?: CompositionMode;
   debugSource?: string;
+  debugVisualCleanup?: boolean;
 }
 
 function normalizeBBox(bbox: NormalizedBBox): NormalizedBBox {
@@ -529,13 +530,44 @@ export async function composeImageFromLayers(
     );
   }
 
+  // Debug visual: draw red outline around cleanup regions
+  if (options.debugVisualCleanup && cleanupRegions.length > 0) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 0, 0, 0.85)";
+    ctx.lineWidth = Math.max(2, Math.round(Math.min(canvas.width, canvas.height) * 0.003));
+    ctx.setLineDash([8, 4]);
+    cleanupRegions.forEach((bbox) => {
+      const rx = Math.round(bbox.x * canvas.width);
+      const ry = Math.round(bbox.y * canvas.height);
+      const rw = Math.round(bbox.width * canvas.width);
+      const rh = Math.round(bbox.height * canvas.height);
+      ctx.strokeRect(rx, ry, rw, rh);
+    });
+    ctx.restore();
+    console.info("[ReferenceEditDebug] composeImageFromLayers:debugVisualCleanup", {
+      regionsDrawn: cleanupRegions.length,
+      debugSource: options.debugSource,
+    });
+  }
+
   const output = canvas.toDataURL("image/png");
+
+  // Compute hash for output
+  const outputSample = output.slice(Math.max(0, output.length - 4096));
+  let outputHashNum = 2166136261;
+  for (let i = 0; i < outputSample.length; i++) {
+    outputHashNum ^= outputSample.charCodeAt(i);
+    outputHashNum += (outputHashNum << 1) + (outputHashNum << 4) + (outputHashNum << 7) + (outputHashNum << 8) + (outputHashNum << 24);
+  }
+  const outputImageHash = (outputHashNum >>> 0).toString(16).padStart(8, "0");
+
   console.info("[ReferenceEditDebug] composeImageFromLayers:done", {
     compositionMode,
     cleanupRegionsCount: cleanupRegions.length,
     outputImageLength: output.length,
-    outputImagePreview: output.length > 64 ? `${output.slice(0, 32)}...${output.slice(-32)}` : output,
+    outputImageHash,
     debugSource: options.debugSource,
+    debugVisualCleanup: !!options.debugVisualCleanup,
   });
 
   return output;

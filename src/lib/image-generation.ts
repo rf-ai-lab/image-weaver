@@ -67,6 +67,12 @@ type FunctionInvokeError = {
 const DEBUG_PREFIX = "[ReferenceEditDebug]";
 const NO_OP_DIFF_THRESHOLD = 0.0025;
 
+/**
+ * Set to true to draw red dashed outlines around cleanup regions in the final canvas.
+ * Useful for visually validating which bbox area is being cleaned before recomposition.
+ */
+const DEBUG_VISUAL_CLEANUP = true;
+
 export type ReferenceEditPath =
   | "replaceLayerInComposition"
   | "appendReferenceObjectToComposition"
@@ -432,6 +438,7 @@ export async function replaceLayerInComposition({
     compositionMode: "replace_real",
     cleanupRegions: [cleanupRegion],
     debugSource: "replaceLayerInComposition",
+    debugVisualCleanup: DEBUG_VISUAL_CLEANUP,
   });
 
   logDebug("replaceLayerInComposition:done", {
@@ -604,6 +611,7 @@ export async function handleReferenceImageEdit({
         compositionMode: "replace_real",
         cleanupRegions: [cleanupRegion],
         debugSource: "transformLayerInComposition",
+        debugVisualCleanup: DEBUG_VISUAL_CLEANUP,
       });
 
       const outputTrace = createImageTraceSnapshot(imageUrl);
