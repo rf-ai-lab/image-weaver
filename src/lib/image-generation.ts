@@ -5,6 +5,7 @@ import {
   createObjectLayerFromSegmented,
   parseReferenceIntent,
   resolveImageToDataUrl,
+  type NormalizedBBox,
   type ObjectLayer,
   type ReferenceIntent,
 } from "@/lib/object-composition";
@@ -166,6 +167,20 @@ function logDebug(event: string, payload: Record<string, unknown>) {
   });
 }
 
+function mergeBBoxes(a: NormalizedBBox, b: NormalizedBBox): NormalizedBBox {
+  const x1 = Math.max(0, Math.min(1, Math.min(a.x, b.x)));
+  const y1 = Math.max(0, Math.min(1, Math.min(a.y, b.y)));
+  const x2 = Math.max(0, Math.min(1, Math.max(a.x + a.width, b.x + b.width)));
+  const y2 = Math.max(0, Math.min(1, Math.max(a.y + a.height, b.y + b.height)));
+
+  return {
+    x: x1,
+    y: y1,
+    width: Math.max(0, x2 - x1),
+    height: Math.max(0, y2 - y1),
+  };
+}
+
 async function loadImageForDiff(source: string): Promise<HTMLImageElement> {
   return await new Promise((resolve, reject) => {
     const img = new Image();
@@ -315,7 +330,10 @@ export async function composeImage({ baseImage, references }: ComposeImageParams
     layers.push(layer);
   }
 
-  const imageUrl = await composeImageFromLayers(baseImage, layers);
+  const imageUrl = await composeImageFromLayers(baseImage, layers, {
+    compositionMode: "overlay_simple",
+    debugSource: "composeImage",
+  });
 
   return { imageUrl, layers, compositionBaseImage: baseImage };
 }
@@ -342,7 +360,10 @@ export async function appendReferenceObjectToComposition({
   });
 
   const layers = [...existingLayers, addedLayer];
-  const imageUrl = await composeImageFromLayers(compositionBaseImage, layers);
+  const imageUrl = await composeImageFromLayers(compositionBaseImage, layers, {
+    compositionMode: "overlay_simple",
+    debugSource: "appendReferenceObjectToComposition",
+  });
 
   logDebug("appendReferenceObjectToComposition", {
     instruction,
@@ -405,12 +426,19 @@ export async function replaceLayerInComposition({
 
   const imageDataChanged = oldLayer.imageData !== replacedLayer.imageData;
   const renderLayerUsesUpdatedData = layers[targetLayerIndex].imageData === replacedLayer.imageData;
+  const cleanupRegion = { ...oldLayer.bbox };
 
-  const imageUrl = await composeImageFromLayers(compositionBaseImage, layers);
+  const imageUrl = await composeImageFromLayers(compositionBaseImage, layers, {
+    compositionMode: "replace_real",
+    cleanupRegions: [cleanupRegion],
+    debugSource: "replaceLayerInComposition",
+  });
 
   logDebug("replaceLayerInComposition:done", {
     targetLayerIndex,
     targetLayerLabel: replacedLayer.label,
+    compositionMode: "replace_real",
+    cleanupRegion,
     imageDataChanged,
     renderLayerUsesUpdatedData,
     oldLayerImageId: toImageDebugId(oldLayer.imageData),
@@ -558,8 +586,25 @@ export async function handleReferenceImageEdit({
     const command = parseObjectTransformPrompt(instruction, existingLayers);
 
     if (command) {
+      const oldBBox = { ...existingLayers[intentResult.matchedLayerIndex].bbox };
       const { layers: updatedLayers } = applyObjectTransformCommand(existingLayers, command);
-      const imageUrl = await recompose(compositionBaseImage!, updatedLayers);
+      const newBBox = { ...updatedLayers[intentResult.matchedLayerIndex].bbox };
+      const cleanupRegion = mergeBBoxes(oldBBox, newBBox);
+
+      logDebug("transformLayerInComposition:bboxUpdate", {
+        requestId: effectiveRequestId,
+        targetLayerIndex: intentResult.matchedLayerIndex,
+        targetLabel: intentResult.targetLabel,
+        oldBBox,
+        newBBox,
+        cleanupRegion,
+      });
+
+      const imageUrl = await recompose(compositionBaseImage!, updatedLayers, {
+        compositionMode: "replace_real",
+        cleanupRegions: [cleanupRegion],
+        debugSource: "transformLayerInComposition",
+      });
 
       const outputTrace = createImageTraceSnapshot(imageUrl);
       const debug = buildDebugInfo({
