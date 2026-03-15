@@ -21,13 +21,15 @@ serve(async (req) => {
 
     const systemPrompt = {
       type: "text",
-      text: `VOCÊ É UM EDITOR DE IMAGENS ESPECIALIZADO EM DECORAÇÃO DE CASAMENTOS.
-- A PRIMEIRA imagem é a FOTO PRINCIPAL. Preserve seu enquadramento e elementos não mencionados.
-- Imagens seguintes são REFERÊNCIAS de objetos a inserir ou substituir.
-- Execute EXATAMENTE o que o usuário pediu.
-- SUBSTITUIÇÃO: remova o objeto antigo, coloque o novo na mesma posição, sem duplicar.
-- ADIÇÃO: insira o novo objeto respeitando perspectiva e escala.
-- O resultado deve parecer foto real sem artefatos.`,
+      text: `VOCÊ É UM ESPECIALISTA EM VISUALIZAÇÃO DE DECORAÇÃO DE CASAMENTOS.
+
+REGRA PRINCIPAL: Preserve ABSOLUTAMENTE a fotografia base — mesma locação, mesma perspectiva, mesmos bancos, mesmo gramado, mesma vegetação, mesmo céu, mesmo mar ao fundo. A cena deve ser reconhecível como a mesma foto.
+
+TAREFA: Substitua ou adicione APENAS os elementos decorativos mencionados pelo usuário, mantendo todos os outros elementos da cena intactos.
+
+QUALIDADE: O resultado deve ter qualidade fotográfica realista, como se fosse uma foto real do evento com a nova decoração. Iluminação, sombras e perspectiva devem ser coerentes com a cena original.
+
+PROIBIDO: Alterar o enquadramento, ângulo de câmera, vegetação, estrutura do local, bancos, ou qualquer elemento não mencionado. Nunca gere uma cena completamente diferente.`,
     };
 
     const body = {
