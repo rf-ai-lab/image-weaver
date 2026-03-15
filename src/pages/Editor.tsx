@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
-import { createImageEditRequestId, handleReferenceImageEdit, refineImage } from "@/lib/image-generation";
+import { createImageEditRequestId, refineImage } from "@/lib/image-generation";
 
 export type LLMProvider = "gemini" | "openai" | "claude";
 
