@@ -5,6 +5,7 @@ import {
   createObjectLayerFromSegmented,
   parseReferenceIntent,
   resolveImageToDataUrl,
+  type NormalizedBBox,
   type ObjectLayer,
   type ReferenceIntent,
 } from "@/lib/object-composition";
