@@ -1,79 +1,42 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { LLMProvider } from "@/pages/Editor";
-import { composeImageFromLayers, createObjectLayerFromSegmented, type ObjectLayer } from "@/lib/object-composition";
-
-export interface ReferenceImage {
-  image: string;
-  instruction: string;
-}
-
-export type ComposeImageParams = {
-  baseImage: string;
-  references: ReferenceImage[];
-};
-
-export type ComposeImageResult = {
-  imageUrl: string;
-  layers: ObjectLayer[];
-  compositionBaseImage: string;
-};
+import type { ObjectLayer } from "@/lib/object-composition";
 
 export function createImageEditRequestId(): string {
   return crypto.randomUUID();
 }
 
-type FunctionInvokeError = {
-  message?: string;
-  context?: {
-    status?: number;
-    json?: () => Promise<unknown>;
-    text?: () => Promise<string>;
-  };
-};
+async function pollReplicate(predictionId: string, apiKey: string): Promise<string> {
+  for (let i = 0; i < 60; i++) {
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
-async function parseInvokeError(error: FunctionInvokeError): Promise<{ status?: number; message: string }> {
-  const status = error?.context?.status;
-  let message = error?.message || "Erro ao processar imagem.";
-  if (typeof error?.context?.json === "function") {
-    try {
-      const body = (await error.context.json()) as { error?: string; message?: string };
-      message = body?.error || body?.message || message;
-      return { status, message };
-    } catch { /* ignore */ }
-  }
-  if (typeof error?.context?.text === "function") {
-    try {
-      const rawText = await error.context.text();
-      if (rawText) message = rawText;
-    } catch { /* ignore */ }
-  }
-  return { status, message };
-}
-
-export async function composeImage({ baseImage, references }: ComposeImageParams): Promise<ComposeImageResult> {
-  if (!baseImage) throw new Error("Imagem base é obrigatória.");
-  if (!references || references.length === 0) throw new Error("Pelo menos uma imagem de referência é necessária.");
-
-  const layers: ObjectLayer[] = [];
-  for (const [index, ref] of references.entries()) {
-    const { data, error } = await supabase.functions.invoke("segment-object", { body: { image: ref.image } });
-    if (error || !data?.imageUrl) throw new Error("Erro ao segmentar objeto.");
-    const layer = await createObjectLayerFromSegmented({
-      segmentedImage: data.imageUrl,
-      instruction: ref.instruction,
-      step: index + 1,
-      existingLayers: layers,
-      baseImage,
+    const response = await fetch(`https://api.replicate.com/v1/predictions/${predictionId}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
     });
-    layers.push(layer);
+
+    const result = await response.json();
+    console.log(`Replicate poll ${i + 1}: ${result.status}`);
+
+    if (result.status === "succeeded") {
+      const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
+      if (!outputUrl) throw new Error("Nenhuma imagem retornada pelo Replicate");
+
+      // Converte URL para base64
+      const imgResponse = await fetch(outputUrl);
+      const blob = await imgResponse.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    if (result.status === "failed") {
+      throw new Error(`Replicate falhou: ${result.error}`);
+    }
   }
-
-  const imageUrl = await composeImageFromLayers(baseImage, layers, {
-    compositionMode: "overlay_simple",
-    debugSource: "composeImage",
-  });
-
-  return { imageUrl, layers, compositionBaseImage: baseImage };
+  throw new Error("Timeout — geração demorou mais de 3 minutos");
 }
 
 export async function refineImage(
@@ -81,34 +44,34 @@ export async function refineImage(
   prompt: string,
   referenceImage?: string,
   llmProvider?: LLMProvider,
-  _trace?: unknown,
 ): Promise<{ imageUrl: string }> {
   if (!currentImage) throw new Error("Imagem atual é obrigatória.");
   if (!prompt && !referenceImage) throw new Error("Prompt ou imagem de referência é obrigatório.");
 
-  const content: { type: string; text?: string; image_url?: { url: string } }[] = [
-    { type: "image_url", image_url: { url: currentImage } },
-  ];
+  const content: any[] = [{ type: "image_url", image_url: { url: currentImage } }];
 
   if (referenceImage) {
-    content.push({ type: "text", text: "A imagem a seguir é uma REFERÊNCIA. Use-a conforme a instrução do usuário:" });
+    content.push({ type: "text", text: "A imagem a seguir é uma REFERÊNCIA:" });
     content.push({ type: "image_url", image_url: { url: referenceImage } });
   }
 
-  if (prompt) {
-    content.push({ type: "text", text: prompt });
-  }
+  if (prompt) content.push({ type: "text", text: prompt });
 
   const { data, error } = await supabase.functions.invoke("edit-image", {
-    body: { content, llmProvider: llmProvider || "gemini" },
+    body: { content },
   });
 
-  if (error) {
-    const parsed = await parseInvokeError(error as FunctionInvokeError);
-    throw new Error(parsed.message || "Erro ao refinar imagem.");
+  if (error) throw new Error(error.message || "Erro ao chamar Edge Function");
+  if (!data) throw new Error("Sem resposta da Edge Function");
+
+  // Se Replicate está processando, faz polling no frontend
+  if (data.status === "processing" && data.predictionId) {
+    console.log("Replicate processing, polling...", data.predictionId);
+    const imageUrl = await pollReplicate(data.predictionId, data.replicateApiKey);
+    return { imageUrl };
   }
 
-  if (!data?.imageUrl) throw new Error("Nenhuma imagem retornada.");
+  if (!data.imageUrl) throw new Error("Nenhuma imagem retornada");
   return { imageUrl: data.imageUrl };
 }
 
@@ -134,51 +97,15 @@ export async function handleReferenceImageEdit({
   compositionBaseImage: string | null;
   action: "replaced_layer" | "added_layer" | "transformed_layer" | "ai_fallback";
   targetLabel?: string;
-  debug: {
-    executedPath: string;
-    requestId: string;
-    timestamp: string;
-    instruction: string;
-    detectedIntent: string;
-    targetLabel?: string;
-    hasCompatibleLayer: boolean;
-    matchedLayerIndex: number;
-    forceReplaceMode: boolean;
-    inputBaseImageId: string;
-    inputCurrentImageId: string;
-    inputReferenceImageId: string;
-    outputImageId: string;
-    inputImageHash: string;
-    outputImageHash: string;
-    inputImageLength: number;
-    outputImageLength: number;
-  };
+  debug: any;
 }> {
   const { imageUrl } = await refineImage(currentImage, instruction, referenceImage, llmProvider);
-
   return {
     imageUrl,
     layers: existingLayers,
     compositionBaseImage: compositionBaseImage || imageUrl,
     action: "ai_fallback",
     targetLabel: undefined,
-    debug: {
-      executedPath: "ai_direct",
-      requestId: createImageEditRequestId(),
-      timestamp: new Date().toISOString(),
-      instruction,
-      detectedIntent: "ai_direct",
-      hasCompatibleLayer: false,
-      matchedLayerIndex: -1,
-      forceReplaceMode: false,
-      inputBaseImageId: "",
-      inputCurrentImageId: "",
-      inputReferenceImageId: "",
-      outputImageId: "",
-      inputImageHash: "",
-      outputImageHash: "",
-      inputImageLength: 0,
-      outputImageLength: 0,
-    },
+    debug: { executedPath: "ai_direct", requestId: createImageEditRequestId(), timestamp: new Date().toISOString(), instruction, detectedIntent: "ai_direct", hasCompatibleLayer: false, matchedLayerIndex: -1, forceReplaceMode: false, inputBaseImageId: "", inputCurrentImageId: "", inputReferenceImageId: "", outputImageId: "", inputImageHash: "", outputImageHash: "", inputImageLength: 0, outputImageLength: 0 },
   };
 }
