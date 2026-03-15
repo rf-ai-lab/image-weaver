@@ -50,6 +50,32 @@ async function parseInvokeError(error: FunctionInvokeError): Promise<{ status?: 
   return { status, message };
 }
 
+export async function composeImage({ baseImage, references }: ComposeImageParams): Promise<ComposeImageResult> {
+  if (!baseImage) throw new Error("Imagem base é obrigatória.");
+  if (!references || references.length === 0) throw new Error("Pelo menos uma imagem de referência é necessária.");
+
+  const layers: ObjectLayer[] = [];
+  for (const [index, ref] of references.entries()) {
+    const { data, error } = await supabase.functions.invoke("segment-object", { body: { image: ref.image } });
+    if (error || !data?.imageUrl) throw new Error("Erro ao segmentar objeto.");
+    const layer = await createObjectLayerFromSegmented({
+      segmentedImage: data.imageUrl,
+      instruction: ref.instruction,
+      step: index + 1,
+      existingLayers: layers,
+      baseImage,
+    });
+    layers.push(layer);
+  }
+
+  const imageUrl = await composeImageFromLayers(baseImage, layers, {
+    compositionMode: "overlay_simple",
+    debugSource: "composeImage",
+  });
+
+  return { imageUrl, layers, compositionBaseImage: baseImage };
+}
+
 export async function refineImage(
   currentImage: string,
   prompt: string,
@@ -108,7 +134,25 @@ export async function handleReferenceImageEdit({
   compositionBaseImage: string | null;
   action: "replaced_layer" | "added_layer" | "transformed_layer" | "ai_fallback";
   targetLabel?: string;
-  debug: { executedPath: string; requestId: string; timestamp: string; instruction: string; detectedIntent: string; targetLabel?: string; hasCompatibleLayer: boolean; matchedLayerIndex: number; forceReplaceMode: boolean; inputBaseImageId: string; inputCurrentImageId: string; inputReferenceImageId: string; outputImageId: string; inputImageHash: string; outputImageHash: string; inputImageLength: number; outputImageLength: number; };
+  debug: {
+    executedPath: string;
+    requestId: string;
+    timestamp: string;
+    instruction: string;
+    detectedIntent: string;
+    targetLabel?: string;
+    hasCompatibleLayer: boolean;
+    matchedLayerIndex: number;
+    forceReplaceMode: boolean;
+    inputBaseImageId: string;
+    inputCurrentImageId: string;
+    inputReferenceImageId: string;
+    outputImageId: string;
+    inputImageHash: string;
+    outputImageHash: string;
+    inputImageLength: number;
+    outputImageLength: number;
+  };
 }> {
   const { imageUrl } = await refineImage(currentImage, instruction, referenceImage, llmProvider);
 
