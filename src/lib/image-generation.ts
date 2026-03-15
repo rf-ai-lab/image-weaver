@@ -6,37 +6,22 @@ export function createImageEditRequestId(): string {
   return crypto.randomUUID();
 }
 
-async function pollReplicate(predictionId: string, apiKey: string): Promise<string> {
+async function pollPrediction(predictionId: string): Promise<string> {
   for (let i = 0; i < 60; i++) {
     await new Promise(resolve => setTimeout(resolve, 3000));
 
-    const response = await fetch(`https://api.replicate.com/v1/predictions/${predictionId}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+    const { data, error } = await supabase.functions.invoke("check-prediction", {
+      body: { predictionId },
     });
 
-    const result = await response.json();
-    console.log(`Replicate poll ${i + 1}: ${result.status}`);
+    if (error) throw new Error(error.message);
 
-    if (result.status === "succeeded") {
-      const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
-      if (!outputUrl) throw new Error("Nenhuma imagem retornada pelo Replicate");
+    console.log(`Poll ${i + 1}: ${data?.status}`);
 
-      // Converte URL para base64
-      const imgResponse = await fetch(outputUrl);
-      const blob = await imgResponse.blob();
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    }
-
-    if (result.status === "failed") {
-      throw new Error(`Replicate falhou: ${result.error}`);
-    }
+    if (data?.status === "succeeded") return data.imageUrl;
+    if (data?.status === "failed") throw new Error(`Geração falhou: ${data.error}`);
   }
-  throw new Error("Timeout — geração demorou mais de 3 minutos");
+  throw new Error("Timeout — tente novamente");
 }
 
 export async function refineImage(
@@ -46,7 +31,6 @@ export async function refineImage(
   llmProvider?: LLMProvider,
 ): Promise<{ imageUrl: string }> {
   if (!currentImage) throw new Error("Imagem atual é obrigatória.");
-  if (!prompt && !referenceImage) throw new Error("Prompt ou imagem de referência é obrigatório.");
 
   const content: any[] = [{ type: "image_url", image_url: { url: currentImage } }];
 
@@ -64,14 +48,12 @@ export async function refineImage(
   if (error) throw new Error(error.message || "Erro ao chamar Edge Function");
   if (!data) throw new Error("Sem resposta da Edge Function");
 
-  // Se Replicate está processando, faz polling no frontend
   if (data.status === "processing" && data.predictionId) {
-    console.log("Replicate processing, polling...", data.predictionId);
-    const imageUrl = await pollReplicate(data.predictionId, data.replicateApiKey);
+    const imageUrl = await pollPrediction(data.predictionId);
     return { imageUrl };
   }
 
-  if (!data.imageUrl) throw new Error("Nenhuma imagem retornada");
+  if (!data.imageUrl) throw new Error(data.error || "Nenhuma imagem retornada");
   return { imageUrl: data.imageUrl };
 }
 
