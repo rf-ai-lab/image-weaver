@@ -380,6 +380,7 @@ export interface ComposeImageFromLayersOptions {
   cleanupRegions?: NormalizedBBox[];
   compositionMode?: CompositionMode;
   debugSource?: string;
+  debugVisualCleanup?: boolean;
 }
 
 function normalizeBBox(bbox: NormalizedBBox): NormalizedBBox {
