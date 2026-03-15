@@ -426,8 +426,13 @@ export async function replaceLayerInComposition({
 
   const imageDataChanged = oldLayer.imageData !== replacedLayer.imageData;
   const renderLayerUsesUpdatedData = layers[targetLayerIndex].imageData === replacedLayer.imageData;
+  const cleanupRegion = { ...oldLayer.bbox };
 
-  const imageUrl = await composeImageFromLayers(compositionBaseImage, layers);
+  const imageUrl = await composeImageFromLayers(compositionBaseImage, layers, {
+    compositionMode: "replace_real",
+    cleanupRegions: [cleanupRegion],
+    debugSource: "replaceLayerInComposition",
+  });
 
   logDebug("replaceLayerInComposition:done", {
     targetLayerIndex,
