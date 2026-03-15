@@ -611,6 +611,7 @@ export async function handleReferenceImageEdit({
         compositionMode: "replace_real",
         cleanupRegions: [cleanupRegion],
         debugSource: "transformLayerInComposition",
+        debugVisualCleanup: DEBUG_VISUAL_CLEANUP,
       });
 
       const outputTrace = createImageTraceSnapshot(imageUrl);
