@@ -194,7 +194,7 @@ RESULTADO:
     });
 
     // Only Gemini image models support modalities
-    if (model.includes("gemini") && model.includes("image")) {
+    if (model.includes("gemini")) {
       body.modalities = ["image", "text"];
     }
 
