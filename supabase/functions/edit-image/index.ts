@@ -8,9 +8,9 @@ const corsHeaders = {
 
 // Map provider names to gateway model IDs
 const LLM_MODELS: Record<string, string> = {
-  gemini: "google/gemini-2.0-flash-preview-image-generation",
-  openai: "openai/gpt-image-1",
-  claude: "google/gemini-2.0-flash-preview-image-generation",
+  gemini: "google/gemini-2.0-flash-exp",
+  openai: "openai/gpt-4o",
+  claude: "google/gemini-2.0-flash-exp",
 };
 
 function summarizeContent(content: any[]): unknown[] {
