@@ -167,6 +167,20 @@ function logDebug(event: string, payload: Record<string, unknown>) {
   });
 }
 
+function mergeBBoxes(a: NormalizedBBox, b: NormalizedBBox): NormalizedBBox {
+  const x1 = Math.max(0, Math.min(1, Math.min(a.x, b.x)));
+  const y1 = Math.max(0, Math.min(1, Math.min(a.y, b.y)));
+  const x2 = Math.max(0, Math.min(1, Math.max(a.x + a.width, b.x + b.width)));
+  const y2 = Math.max(0, Math.min(1, Math.max(a.y + a.height, b.y + b.height)));
+
+  return {
+    x: x1,
+    y: y1,
+    width: Math.max(0, x2 - x1),
+    height: Math.max(0, y2 - y1),
+  };
+}
+
 async function loadImageForDiff(source: string): Promise<HTMLImageElement> {
   return await new Promise((resolve, reject) => {
     const img = new Image();
