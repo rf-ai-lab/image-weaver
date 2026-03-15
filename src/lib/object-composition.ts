@@ -374,7 +374,105 @@ export async function createObjectLayerFromSegmented(params: {
   };
 }
 
-export async function composeImageFromLayers(baseImage: string, layers: ObjectLayer[]): Promise<string> {
+export type CompositionMode = "overlay_simple" | "replace_real";
+
+export interface ComposeImageFromLayersOptions {
+  cleanupRegions?: NormalizedBBox[];
+  compositionMode?: CompositionMode;
+  debugSource?: string;
+}
+
+function normalizeBBox(bbox: NormalizedBBox): NormalizedBBox {
+  const x = clamp(bbox.x, 0, 1);
+  const y = clamp(bbox.y, 0, 1);
+  const right = clamp(bbox.x + bbox.width, 0, 1);
+  const bottom = clamp(bbox.y + bbox.height, 0, 1);
+
+  return {
+    x,
+    y,
+    width: clamp(right - x, 0, 1),
+    height: clamp(bottom - y, 0, 1),
+  };
+}
+
+function neutralizeRegionOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  canvasWidth: number,
+  canvasHeight: number,
+  bbox: NormalizedBBox
+): { pixelBBox: { x: number; y: number; width: number; height: number }; avgColor: string } | null {
+  const normalized = normalizeBBox(bbox);
+  if (normalized.width <= 0 || normalized.height <= 0) return null;
+
+  const x = Math.round(normalized.x * canvasWidth);
+  const y = Math.round(normalized.y * canvasHeight);
+  const width = Math.max(1, Math.round(normalized.width * canvasWidth));
+  const height = Math.max(1, Math.round(normalized.height * canvasHeight));
+
+  const padding = Math.max(6, Math.round(Math.max(width, height) * 0.2));
+  const sx = Math.max(0, x - padding);
+  const sy = Math.max(0, y - padding);
+  const ex = Math.min(canvasWidth, x + width + padding);
+  const ey = Math.min(canvasHeight, y + height + padding);
+  const sw = Math.max(1, ex - sx);
+  const sh = Math.max(1, ey - sy);
+
+  const sampleData = ctx.getImageData(sx, sy, sw, sh).data;
+
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  let sumA = 0;
+  let count = 0;
+
+  for (let py = 0; py < sh; py++) {
+    for (let px = 0; px < sw; px++) {
+      const gx = sx + px;
+      const gy = sy + py;
+      const insideTarget = gx >= x && gx < x + width && gy >= y && gy < y + height;
+      if (insideTarget) continue;
+
+      const idx = (py * sw + px) * 4;
+      const alpha = sampleData[idx + 3];
+      if (alpha <= 0) continue;
+
+      sumR += sampleData[idx];
+      sumG += sampleData[idx + 1];
+      sumB += sampleData[idx + 2];
+      sumA += alpha;
+      count++;
+    }
+  }
+
+  const fallbackIdx = (() => {
+    const cx = clamp(Math.round(width / 2), 0, sw - 1);
+    const cy = clamp(Math.round(height / 2), 0, sh - 1);
+    return (cy * sw + cx) * 4;
+  })();
+
+  const r = count > 0 ? Math.round(sumR / count) : sampleData[fallbackIdx] ?? 0;
+  const g = count > 0 ? Math.round(sumG / count) : sampleData[fallbackIdx + 1] ?? 0;
+  const b = count > 0 ? Math.round(sumB / count) : sampleData[fallbackIdx + 2] ?? 0;
+  const a = count > 0 ? sumA / count / 255 : (sampleData[fallbackIdx + 3] ?? 255) / 255;
+  const avgColor = `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
+
+  ctx.save();
+  ctx.fillStyle = avgColor;
+  ctx.fillRect(x, y, width, height);
+  ctx.restore();
+
+  return {
+    pixelBBox: { x, y, width, height },
+    avgColor,
+  };
+}
+
+export async function composeImageFromLayers(
+  baseImage: string,
+  layers: ObjectLayer[],
+  options: ComposeImageFromLayersOptions = {}
+): Promise<string> {
   const resolvedBase = await resolveImageToDataUrl(baseImage);
   const base = await loadImage(resolvedBase);
 
@@ -384,7 +482,32 @@ export async function composeImageFromLayers(baseImage: string, layers: ObjectLa
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Não foi possível criar contexto de canvas.");
 
+  const cleanupRegions = (options.cleanupRegions ?? []).map(normalizeBBox).filter((bbox) => bbox.width > 0 && bbox.height > 0);
+  const compositionMode: CompositionMode =
+    options.compositionMode ?? (cleanupRegions.length > 0 ? "replace_real" : "overlay_simple");
+
+  console.info("[ReferenceEditDebug] composeImageFromLayers:start", {
+    compositionMode,
+    cleanupRegionsCount: cleanupRegions.length,
+    cleanupRegions,
+    layersCount: layers.length,
+    debugSource: options.debugSource,
+  });
+
   ctx.drawImage(base, 0, 0, canvas.width, canvas.height);
+
+  if (cleanupRegions.length > 0) {
+    cleanupRegions.forEach((bbox, index) => {
+      const cleanupInfo = neutralizeRegionOnCanvas(ctx, canvas.width, canvas.height, bbox);
+      console.info("[ReferenceEditDebug] composeImageFromLayers:cleanupRegion", {
+        compositionMode,
+        cleanupIndex: index,
+        normalizedBBox: bbox,
+        pixelBBox: cleanupInfo?.pixelBBox,
+        avgColor: cleanupInfo?.avgColor,
+      });
+    });
+  }
 
   for (const layer of layers) {
     const layerImage = await loadImage(layer.imageData);
@@ -406,7 +529,16 @@ export async function composeImageFromLayers(baseImage: string, layers: ObjectLa
     );
   }
 
-  return canvas.toDataURL("image/png");
+  const output = canvas.toDataURL("image/png");
+  console.info("[ReferenceEditDebug] composeImageFromLayers:done", {
+    compositionMode,
+    cleanupRegionsCount: cleanupRegions.length,
+    outputImageLength: output.length,
+    outputImagePreview: output.length > 64 ? `${output.slice(0, 32)}...${output.slice(-32)}` : output,
+    debugSource: options.debugSource,
+  });
+
+  return output;
 }
 
 function resolveTargetLayerIndex(layers: ObjectLayer[], command: ParsedObjectCommand): number {
