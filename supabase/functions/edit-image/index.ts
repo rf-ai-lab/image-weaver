@@ -75,6 +75,7 @@ async function editWithReplicate(apiKey: string, currentImage: string, prompt: s
   }
 
   const prediction = await createResponse.json();
+  console.log("Replicate prediction created:", JSON.stringify(prediction));
   const predictionId = prediction.id;
   if (!predictionId) throw new Error("Replicate não retornou ID da predição");
 
