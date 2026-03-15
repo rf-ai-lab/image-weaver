@@ -1,6 +1,22 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { LLMProvider } from "@/pages/Editor";
-import type { ObjectLayer } from "@/lib/object-composition";
+import { composeImageFromLayers, createObjectLayerFromSegmented, type ObjectLayer } from "@/lib/object-composition";
+
+export interface ReferenceImage {
+  image: string;
+  instruction: string;
+}
+
+export type ComposeImageParams = {
+  baseImage: string;
+  references: ReferenceImage[];
+};
+
+export type ComposeImageResult = {
+  imageUrl: string;
+  layers: ObjectLayer[];
+  compositionBaseImage: string;
+};
 
 export function createImageEditRequestId(): string {
   return crypto.randomUUID();
