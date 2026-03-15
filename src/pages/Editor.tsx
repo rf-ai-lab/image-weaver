@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Send, Undo2, PenTool, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
-import { createImageEditRequestId, handleReferenceImageEdit, refineImage } from "@/lib/image-generation";
+import { createImageEditRequestId, refineImage } from "@/lib/image-generation";
 
 export type LLMProvider = "gemini" | "openai" | "claude";
 
@@ -134,52 +134,27 @@ const Editor = () => {
 
     setIsGenerating(true);
     try {
-      // --- PATH 1: Attached reference image (replace or add) ---
+      // --- PATH 1: Attached reference image ---
       if (attachedImage) {
         const instruction = cleanedPrompt || "Adicionar novo objeto de referência";
 
-        const result = await handleReferenceImageEdit({
-          compositionBaseImage: compositionBaseImage || null,
-          existingLayers: latestObjectLayers,
-          referenceImage: attachedImage,
+        const { imageUrl } = await refineImage(
+          imageToSend,
           instruction,
-          currentImage: imageToSend,
-          llmProvider: selectedLLM,
-          requestId,
-        });
+          attachedImage,
+          selectedLLM
+        );
 
-        const outputTrace = createImageTrace(result.imageUrl);
-        console.info("[ReferenceEditDebug] editor:result", {
-          requestId,
-          ...result.debug,
-          imageUrlForAddVersionHash: outputTrace.hash,
-          imageUrlForAddVersionLength: outputTrace.length,
-          imageUrlForAddVersionPreview: outputTrace.preview,
+        addVersion(imageUrl, instruction, {
+          objectLayers: latestObjectLayers,
+          compositionBaseImage: compositionBaseImage || imageUrl,
         });
-
-        addVersion(result.imageUrl, instruction, {
-          objectLayers: result.layers,
-          compositionBaseImage: result.compositionBaseImage,
-          requestId,
-          pipelineBranch: result.debug.executedPath,
-          inputImageHash: inputTrace.hash,
-          outputImageHash: outputTrace.hash,
-        });
-
-        const actionMessage =
-          result.action === "replaced_layer"
-            ? `Objeto "${result.targetLabel}" substituído na composição.`
-            : result.action === "added_layer"
-            ? `Objeto "${result.targetLabel || "novo"}" adicionado à composição.`
-            : result.action === "transformed_layer"
-            ? `Objeto "${result.targetLabel}" transformado na composição.`
-            : `Edição com referência aplicada via IA${result.targetLabel ? ` (alvo: ${result.targetLabel})` : ""}.`;
 
         setSelectedSetupImageIndex(null);
         setPrompt("");
         setAnnotatedImage(null);
         setAttachedImage(null);
-        toast.success(actionMessage);
+        toast.success("Imagem atualizada!");
         return;
       }
 
