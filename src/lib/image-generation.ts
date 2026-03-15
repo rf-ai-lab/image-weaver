@@ -55,6 +55,7 @@ export async function refineImage(
   prompt: string,
   referenceImage?: string,
   llmProvider?: LLMProvider,
+  _trace?: unknown,
 ): Promise<{ imageUrl: string }> {
   if (!currentImage) throw new Error("Imagem atual é obrigatória.");
   if (!prompt && !referenceImage) throw new Error("Prompt ou imagem de referência é obrigatório.");
