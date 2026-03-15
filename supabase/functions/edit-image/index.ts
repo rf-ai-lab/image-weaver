@@ -8,9 +8,9 @@ const corsHeaders = {
 
 // Map provider names to gateway model IDs
 const LLM_MODELS: Record<string, string> = {
-  gemini: "google/gemini-2.0-flash-exp",
+  gemini: "google/gemini-2.0-flash-preview-image-generation",
   openai: "openai/gpt-4o",
-  claude: "google/gemini-2.0-flash-exp",
+  claude: "google/gemini-2.0-flash-preview-image-generation",
 };
 
 function summarizeContent(content: any[]): unknown[] {
@@ -194,7 +194,7 @@ RESULTADO:
     });
 
     // Only Gemini image models support modalities
-    if (model.includes("gemini") && model.includes("image")) {
+    if (model.includes("gemini")) {
       body.modalities = ["image", "text"];
     }
 
