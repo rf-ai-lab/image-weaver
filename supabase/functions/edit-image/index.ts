@@ -139,14 +139,34 @@ serve(async (req) => {
     let imageUrl: string;
 
     if (referenceImage) {
-      imageUrl = await editWithReplicate(REPLICATE_API_KEY, currentImage, prompt, referenceImage);
-    } else {
-      imageUrl = await editWithOpenAI(OPENAI_API_KEY, currentImage, prompt);
-    }
+      const baseDataUrl = await toBase64DataUrl(currentImage);
+      const refDataUrl = await toBase64DataUrl(referenceImage);
 
-    return new Response(JSON.stringify({ imageUrl }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+      const input = {
+        input_image: baseDataUrl,
+        prompt: `${prompt}. Maintain the exact same camera angle, framing, lighting and all scene elements. Only replace the specific decoration element mentioned, keeping everything else identical.`,
+        reference_image: refDataUrl,
+      };
+
+      const createResponse = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-pro/predictions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${REPLICATE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ input }),
+      });
+
+      if (!createResponse.ok) throw new Error(`Replicate error ${createResponse.status}: ${await createResponse.text()}`);
+      const prediction = await createResponse.json();
+      console.log("Prediction created:", JSON.stringify(prediction));
+      if (!prediction.id) throw new Error("Replicate não retornou ID");
+      return new Response(JSON.stringify({ status: "processing", predictionId: prediction.id }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    } else {
+      const imageUrl = await editWithOpenAI(OPENAI_API_KEY, currentImage, prompt);
+      return new Response(JSON.stringify({ imageUrl }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
   } catch (e) {
     console.error("edit-image error:", e);
