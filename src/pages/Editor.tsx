@@ -52,7 +52,6 @@ const Editor = () => {
   const [selectedSetupImageIndex, setSelectedSetupImageIndex] = useState<number | null>(null);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [selectedLLM, setSelectedLLM] = useState<LLMProvider>("gemini");
-  const [sceneDescription, setSceneDescription] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const setupImages = rows.filter((r) => Boolean(r.imageData));
@@ -139,14 +138,12 @@ const Editor = () => {
       if (attachedImage) {
         const instruction = cleanedPrompt || "Adicionar novo objeto de referência";
 
-        const { imageUrl, updatedSceneDescription } = await refineImage(
+        const { imageUrl } = await refineImage(
           imageToSend,
           instruction,
           attachedImage,
-          selectedLLM,
-          sceneDescription
+          selectedLLM
         );
-        if (updatedSceneDescription) setSceneDescription(updatedSceneDescription);
 
         addVersion(imageUrl, instruction, {
           objectLayers: latestObjectLayers,
@@ -162,8 +159,7 @@ const Editor = () => {
       }
 
       // --- PATH 2: Free-form AI refinement ---
-      const { imageUrl, updatedSceneDescription: freeFormSD } = await refineImage(imageToSend, cleanedPrompt, undefined, selectedLLM, sceneDescription);
-      if (freeFormSD) setSceneDescription(freeFormSD);
+      const { imageUrl } = await refineImage(imageToSend, cleanedPrompt, undefined, selectedLLM);
       const outputTrace = createImageTrace(imageUrl);
       const sameOutput = imageUrl === imageToSend || (outputTrace.hash === inputTrace.hash && outputTrace.length === inputTrace.length);
 
