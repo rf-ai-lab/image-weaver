@@ -19,26 +19,35 @@ const Header = () => {
       return;
     }
     const refs = rows.filter((r) => !r.isPrimary && r.imageData && r.instructions.trim());
-    if (refs.length === 0) {
-      toast.error("Adicione pelo menos uma imagem de referência com instrução.");
-      return;
-    }
 
     setIsGenerating(true);
     try {
       let currentImage = primary.imageData;
       const allInstructions: string[] = [];
 
-      for (const ref of refs) {
-        const instruction = ref.instructions.trim();
+      if (refs.length === 0) {
+        // Sem referências: usa apenas a foto principal + suas instruções
+        const instruction = primary.instructions?.trim() || "Melhore a decoração desta imagem";
         allInstructions.push(instruction);
         const { imageUrl } = await refineImage(
           currentImage,
           instruction,
-          ref.imageData!,
+          undefined,
           "gemini"
         );
         currentImage = imageUrl;
+      } else {
+        for (const ref of refs) {
+          const instruction = ref.instructions.trim();
+          allInstructions.push(instruction);
+          const { imageUrl } = await refineImage(
+            currentImage,
+            instruction,
+            ref.imageData!,
+            "gemini"
+          );
+          currentImage = imageUrl;
+        }
       }
 
       addVersion(
