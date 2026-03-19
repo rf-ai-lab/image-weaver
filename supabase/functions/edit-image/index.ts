@@ -143,7 +143,7 @@ serve(async (req) => {
 
       const input = {
         input_image: baseDataUrl,
-        prompt: `${prompt}. Important: the reference image showing the replacement element is described in this instruction. Apply the change maintaining the exact same camera angle, perspective, lighting and all other scene elements unchanged. Only modify the specific decoration element mentioned.`,
+        prompt: `${prompt}. Keep the exact same venue, benches, grass, vegetation, ocean background, camera angle and perspective. Only change the specific decoration element mentioned, maintaining its exact position and scale in the scene.`,
         aspect_ratio: "match_input_image",
         output_format: "png",
         safety_tolerance: 2,
@@ -160,7 +160,6 @@ serve(async (req) => {
         throw new Error(`Replicate error ${createResponse.status}: ${errText}`);
       }
       const prediction = await createResponse.json();
-      console.log("Flux Kontext prediction:", JSON.stringify(prediction));
       if (!prediction.id) throw new Error("Replicate não retornou ID");
       return new Response(JSON.stringify({ status: "processing", predictionId: prediction.id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
