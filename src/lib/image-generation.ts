@@ -6,55 +6,32 @@ export function createImageEditRequestId(): string {
   return crypto.randomUUID();
 }
 
-async function pollPrediction(predictionId: string): Promise<string> {
-  for (let i = 0; i < 60; i++) {
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    const { data, error } = await supabase.functions.invoke("check-prediction", {
-      body: { predictionId },
-    });
-
-    if (error) throw new Error(error.message);
-
-    console.log(`Poll ${i + 1}: ${data?.status}`);
-
-    if (data?.status === "succeeded") return data.imageUrl;
-    if (data?.status === "failed") throw new Error(`Geração falhou: ${data.error}`);
-  }
-  throw new Error("Timeout — tente novamente");
-}
-
 export async function refineImage(
   currentImage: string,
   prompt: string,
   referenceImage?: string,
   llmProvider?: LLMProvider,
-): Promise<{ imageUrl: string }> {
+  sceneDescription?: string,
+): Promise<{ imageUrl: string; updatedSceneDescription?: string }> {
   if (!currentImage) throw new Error("Imagem atual é obrigatória.");
-
-  const content: any[] = [{ type: "image_url", image_url: { url: currentImage } }];
-
-  if (referenceImage) {
-    content.push({ type: "text", text: "A imagem a seguir é uma REFERÊNCIA:" });
-    content.push({ type: "image_url", image_url: { url: referenceImage } });
-  }
-
-  if (prompt) content.push({ type: "text", text: prompt });
+  if (!prompt) throw new Error("Prompt é obrigatório.");
 
   const { data, error } = await supabase.functions.invoke("edit-image", {
-    body: { content },
+    body: {
+      image: currentImage,
+      prompt,
+      scene_description: sceneDescription || "",
+    },
   });
 
   if (error) throw new Error(error.message || "Erro ao chamar Edge Function");
   if (!data) throw new Error("Sem resposta da Edge Function");
-
-  if (data.status === "processing" && data.predictionId) {
-    const imageUrl = await pollPrediction(data.predictionId);
-    return { imageUrl };
-  }
-
   if (!data.imageUrl) throw new Error(data.error || "Nenhuma imagem retornada");
-  return { imageUrl: data.imageUrl };
+
+  return {
+    imageUrl: data.imageUrl,
+    updatedSceneDescription: data.updatedSceneDescription,
+  };
 }
 
 export async function handleReferenceImageEdit({

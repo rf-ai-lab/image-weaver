@@ -1,107 +1,34 @@
-import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-async function toBase64DataUrl(url: string): Promise<string> {
-  if (url.startsWith("data:")) return url;
-  const res = await fetch(url);
-  const blob = await res.blob();
-  const buffer = await blob.arrayBuffer();
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-  const mime = blob.type || "image/png";
-  return `data:${mime};base64,${base64}`;
-}
+const REPLICATE_API = "https://api.replicate.com/v1";
 
-async function editWithOpenAI(apiKey: string, currentImage: string, prompt: string): Promise<string> {
-  const dataUrl = await toBase64DataUrl(currentImage);
-  const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, "");
-  const imageBytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+// Model: timothybrooks/instruct-pix2pix
+const MODEL_VERSION = "30c1d0b916a6f8efce20493f5d61ee27491ab2a60437c13c588468b9810ec23f";
 
-  const formData = new FormData();
-  formData.append("image", new Blob([imageBytes], { type: "image/png" }), "image.png");
-  formData.append("prompt", prompt);
-  formData.append("model", "gpt-image-1");
-  formData.append("size", "1024x1024");
-  formData.append("quality", "high");
-
-  const response = await fetch("https://api.openai.com/v1/images/edits", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}` },
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`OpenAI error ${response.status}: ${error}`);
-  }
-
-  const data = await response.json();
-  const b64 = data.data?.[0]?.b64_json;
-  if (!b64) throw new Error("Nenhuma imagem retornada pela OpenAI");
-  return `data:image/png;base64,${b64}`;
-}
-
-async function editWithReplicate(apiKey: string, currentImage: string, prompt: string, referenceImage?: string): Promise<string> {
-  const baseDataUrl = await toBase64DataUrl(currentImage);
-
-  const input: Record<string, unknown> = {
-    image: baseDataUrl,
-    prompt: referenceImage
-      ? `${prompt}. Incorporate the object from the reference image maintaining the same position and scale as the original object in the scene.`
-      : prompt,
-    num_inference_steps: 28,
-    guidance_scale: 60,
-  };
-
-  if (referenceImage) {
-    input.reference_image = await toBase64DataUrl(referenceImage);
-  }
-
-  const createResponse = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-fill-pro/predictions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ input }),
-  });
-
-  if (!createResponse.ok) {
-    const error = await createResponse.text();
-    throw new Error(`Replicate error ${createResponse.status}: ${error}`);
-  }
-
-  const prediction = await createResponse.json();
-  console.log("Replicate prediction created:", JSON.stringify(prediction));
-  const predictionId = prediction.id;
-  if (!predictionId) throw new Error("Replicate não retornou ID da predição");
-
-  // Polling até 120 segundos
-  for (let i = 0; i < 40; i++) {
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    const pollResponse = await fetch(`https://api.replicate.com/v1/predictions/${predictionId}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+async function pollPrediction(id: string, token: string, maxAttempts = 60): Promise<any> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const res = await fetch(`${REPLICATE_API}/predictions/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
     });
-
-    const result = await pollResponse.json();
-    console.log(`Replicate poll ${i + 1}: ${result.status}`);
-
-    if (result.status === "succeeded") {
-      const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
-      if (!outputUrl) throw new Error("Nenhuma imagem retornada pelo Replicate");
-      return await toBase64DataUrl(outputUrl);
+    const data = await res.json();
+    if (data.status === "succeeded") return data;
+    if (data.status === "failed" || data.status === "canceled") {
+      throw new Error(data.error || "A geração da imagem falhou.");
     }
-
-    if (result.status === "failed") {
-      throw new Error(`Replicate falhou: ${result.error}`);
-    }
+    await new Promise((r) => setTimeout(r, 2000));
   }
+  throw new Error("Timeout: a geração demorou demais.");
+}
 
-  throw new Error("Replicate timeout — geração demorou mais de 2 minutos");
+function normalizeReplicateToken(rawToken: string | undefined): string {
+  if (!rawToken) return "";
+  return rawToken.trim().replace(/^Bearer\s+/i, "").replace(/^['"]|['"]$/g, "");
 }
 
 serve(async (req) => {
@@ -110,71 +37,94 @@ serve(async (req) => {
   }
 
   try {
-    const REPLICATE_API_KEY = Deno.env.get("REPLICATE_API_KEY") || Deno.env.get("REPLICATE_API_TOKEN");
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    const REPLICATE_API_TOKEN = normalizeReplicateToken(
+      Deno.env.get("REPLICATE_API_TOKEN") || Deno.env.get("REPLICATE_API_KEY")
+    );
+    if (!REPLICATE_API_TOKEN) throw new Error("REPLICATE_API_TOKEN não está configurado.");
 
-    if (!REPLICATE_API_KEY) throw new Error("REPLICATE_API_KEY não configurada no Supabase");
-    if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY não configurada no Supabase");
+    const { image, prompt, scene_description } = await req.json();
 
-    const { content } = await req.json();
-    if (!content || !Array.isArray(content)) throw new Error("content array é obrigatório");
+    if (!image) throw new Error("Imagem é obrigatória.");
+    if (!prompt) throw new Error("Prompt é obrigatório.");
 
-    const imageUrls: string[] = content
-      .filter((i: any) => i?.type === "image_url")
-      .map((i: any) => i.image_url?.url as string);
+    const currentSceneDescription = scene_description || "";
 
-    const texts: string[] = content
-      .filter((i: any) => i?.type === "text")
-      .map((i: any) => i.text as string);
+    // Build the full instruction combining prompt with scene context
+    const fullPrompt = currentSceneDescription
+      ? `${prompt}. Current scene: ${currentSceneDescription}`
+      : prompt;
 
-    const currentImage = imageUrls[0];
-    const referenceImage = imageUrls[1] ?? null;
-    const prompt = texts.filter(t => !t.includes("REFERÊNCIA")).join(" ").trim();
+    console.log("Creating Replicate prediction (instruct-pix2pix)...");
+    console.log("Prompt:", fullPrompt);
+    console.log("Scene description:", currentSceneDescription);
 
-    if (!currentImage) throw new Error("Imagem principal é obrigatória");
-    if (!prompt) throw new Error("Prompt é obrigatório");
+    const replicateInput = {
+      image,
+      prompt: fullPrompt,
+      num_inference_steps: 50,
+      image_guidance_scale: 1.5,
+      guidance_scale: 7.5,
+      seed: 0,
+    };
 
-    console.log("edit-image:", { hasReference: !!referenceImage, promptLength: prompt.length });
+    const createRes = await fetch(`${REPLICATE_API}/predictions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${REPLICATE_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        version: MODEL_VERSION,
+        input: replicateInput,
+      }),
+    });
 
-    let imageUrl: string;
+    if (!createRes.ok) {
+      const errText = await createRes.text();
+      console.error("Replicate create error:", createRes.status, errText);
 
-    if (referenceImage) {
-      const baseDataUrl = await toBase64DataUrl(currentImage);
-
-      const input = {
-        input_image: baseDataUrl,
-        prompt: `${prompt}. Keep the exact same venue, benches, grass, vegetation, ocean background, camera angle and perspective. Only change the specific decoration element mentioned, maintaining its exact position and scale in the scene.`,
-        aspect_ratio: "match_input_image",
-        output_format: "png",
-        safety_tolerance: 2,
-      };
-
-      const createResponse = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-pro/predictions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${REPLICATE_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ input }),
-      });
-
-      if (!createResponse.ok) {
-        const errText = await createResponse.text();
-        throw new Error(`Replicate error ${createResponse.status}: ${errText}`);
+      if (createRes.status === 401 || createRes.status === 403) {
+        return new Response(
+          JSON.stringify({ error: "Token da API Replicate inválido." }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
-      const prediction = await createResponse.json();
-      if (!prediction.id) throw new Error("Replicate não retornou ID");
-      return new Response(JSON.stringify({ status: "processing", predictionId: prediction.id }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    } else {
-      const imageUrl = await editWithOpenAI(OPENAI_API_KEY, currentImage, prompt);
-      return new Response(JSON.stringify({ imageUrl }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      if (createRes.status === 402) {
+        return new Response(
+          JSON.stringify({ error: "Créditos insuficientes na conta Replicate." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (createRes.status === 429) {
+        return new Response(
+          JSON.stringify({ error: "Limite de requisições excedido." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      throw new Error(`Replicate API error: ${createRes.status} - ${errText}`);
     }
 
+    const prediction = await createRes.json();
+    console.log("Prediction created:", prediction.id);
+
+    const result = await pollPrediction(prediction.id, REPLICATE_API_TOKEN);
+    const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
+    if (!outputUrl) throw new Error("Nenhuma imagem foi gerada pelo modelo.");
+
+    // Update scene description with the latest change
+    const updatedSceneDescription = currentSceneDescription
+      ? `${currentSceneDescription}. ${prompt}`
+      : prompt;
+
+    return new Response(
+      JSON.stringify({ imageUrl: outputUrl, updatedSceneDescription }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   } catch (e) {
     console.error("edit-image error:", e);
+    const message = e instanceof Error ? e.message : "Erro desconhecido";
     return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Erro desconhecido" }),
+      JSON.stringify({ error: message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
