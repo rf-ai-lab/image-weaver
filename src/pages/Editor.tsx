@@ -162,7 +162,8 @@ const Editor = () => {
       }
 
       // --- PATH 2: Free-form AI refinement ---
-      const { imageUrl } = await refineImage(imageToSend, cleanedPrompt, undefined, selectedLLM);
+      const { imageUrl, updatedSceneDescription: freeFormSD } = await refineImage(imageToSend, cleanedPrompt, undefined, selectedLLM, sceneDescription);
+      if (freeFormSD) setSceneDescription(freeFormSD);
       const outputTrace = createImageTrace(imageUrl);
       const sameOutput = imageUrl === imageToSend || (outputTrace.hash === inputTrace.hash && outputTrace.length === inputTrace.length);
 
