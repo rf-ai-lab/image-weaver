@@ -139,12 +139,14 @@ const Editor = () => {
       if (attachedImage) {
         const instruction = cleanedPrompt || "Adicionar novo objeto de referência";
 
-        const { imageUrl } = await refineImage(
+        const { imageUrl, updatedSceneDescription } = await refineImage(
           imageToSend,
           instruction,
           attachedImage,
-          selectedLLM
+          selectedLLM,
+          sceneDescription
         );
+        if (updatedSceneDescription) setSceneDescription(updatedSceneDescription);
 
         addVersion(imageUrl, instruction, {
           objectLayers: latestObjectLayers,
