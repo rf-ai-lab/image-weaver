@@ -140,13 +140,12 @@ serve(async (req) => {
 
     if (referenceImage) {
       const baseDataUrl = await toBase64DataUrl(currentImage);
+      const refDataUrl = await toBase64DataUrl(referenceImage);
 
       const input = {
         input_image: baseDataUrl,
-        prompt: `${prompt}. Important: the reference image showing the replacement element is described in this instruction. Apply the change maintaining the exact same camera angle, perspective, lighting and all other scene elements unchanged. Only modify the specific decoration element mentioned.`,
-        aspect_ratio: "match_input_image",
-        output_format: "png",
-        safety_tolerance: 2,
+        prompt: `${prompt}. Maintain the exact same camera angle, framing, lighting and all scene elements. Only replace the specific decoration element mentioned, keeping everything else identical.`,
+        reference_image: refDataUrl,
       };
 
       const createResponse = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-pro/predictions", {
@@ -155,12 +154,9 @@ serve(async (req) => {
         body: JSON.stringify({ input }),
       });
 
-      if (!createResponse.ok) {
-        const errText = await createResponse.text();
-        throw new Error(`Replicate error ${createResponse.status}: ${errText}`);
-      }
+      if (!createResponse.ok) throw new Error(`Replicate error ${createResponse.status}: ${await createResponse.text()}`);
       const prediction = await createResponse.json();
-      console.log("Flux Kontext prediction:", JSON.stringify(prediction));
+      console.log("Prediction created:", JSON.stringify(prediction));
       if (!prediction.id) throw new Error("Replicate não retornou ID");
       return new Response(JSON.stringify({ status: "processing", predictionId: prediction.id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
