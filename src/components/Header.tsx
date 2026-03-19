@@ -19,38 +19,26 @@ const Header = () => {
       return;
     }
     const refs = rows.filter((r) => !r.isPrimary && r.imageData && r.instructions.trim());
+    if (refs.length === 0) {
+      toast.error("Adicione pelo menos uma imagem de referência com instrução.");
+      return;
+    }
 
     setIsGenerating(true);
     try {
       let currentImage = primary.imageData;
       const allInstructions: string[] = [];
 
-      if (refs.length > 0) {
-        for (const ref of refs) {
-          const instruction = ref.instructions.trim();
-          allInstructions.push(instruction);
-          const { imageUrl } = await refineImage(
-            currentImage,
-            instruction,
-            ref.imageData!,
-            "gemini"
-          );
-          currentImage = imageUrl;
-        }
-      } else if (primary.instructions.trim()) {
-        const instruction = primary.instructions.trim();
+      for (const ref of refs) {
+        const instruction = ref.instructions.trim();
         allInstructions.push(instruction);
         const { imageUrl } = await refineImage(
           currentImage,
           instruction,
-          undefined,
+          ref.imageData!,
           "gemini"
         );
         currentImage = imageUrl;
-      } else {
-        setIsGenerating(false);
-        toast.error("Adicione instruções na foto principal ou imagens de referência.");
-        return;
       }
 
       addVersion(
