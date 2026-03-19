@@ -5,8 +5,20 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+async function toBase64DataUrl(url: string): Promise<string> {
+  if (url.startsWith("data:")) return url;
+  const res = await fetch(url);
+  const blob = await res.blob();
+  const buffer = await blob.arrayBuffer();
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+  return `data:${blob.type || "image/png"};base64,${base64}`;
+}
+
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
   try {
     const REPLICATE_API_KEY = Deno.env.get("REPLICATE_API_KEY") || Deno.env.get("REPLICATE_API_TOKEN");
     if (!REPLICATE_API_KEY) throw new Error("REPLICATE_API_KEY não configurada");
@@ -19,26 +31,12 @@ serve(async (req) => {
     });
 
     if (!response.ok) throw new Error(`Replicate error: ${response.status}`);
+
     const result = await response.json();
 
     if (result.status === "succeeded") {
       const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
-      if (!outputUrl) throw new Error("Nenhuma URL de saída");
-
-      // Baixa a imagem e converte para base64
-      const imgResponse = await fetch(outputUrl);
-      const arrayBuffer = await imgResponse.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      
-      let binary = "";
-      const chunkSize = 1024;
-      for (let i = 0; i < uint8Array.length; i += chunkSize) {
-        const chunk = uint8Array.subarray(i, i + chunkSize);
-        binary += String.fromCharCode(...chunk);
-      }
-      const base64 = btoa(binary);
-      const imageUrl = `data:image/png;base64,${base64}`;
-
+      const imageUrl = await toBase64DataUrl(outputUrl);
       return new Response(JSON.stringify({ status: "succeeded", imageUrl }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -55,7 +53,6 @@ serve(async (req) => {
     });
 
   } catch (e) {
-    console.error("check-prediction error:", e);
     return new Response(
       JSON.stringify({ error: e instanceof Error ? e.message : "Erro desconhecido" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
