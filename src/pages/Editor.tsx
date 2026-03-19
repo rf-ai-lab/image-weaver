@@ -52,6 +52,7 @@ const Editor = () => {
   const [selectedSetupImageIndex, setSelectedSetupImageIndex] = useState<number | null>(null);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [selectedLLM, setSelectedLLM] = useState<LLMProvider>("gemini");
+  const [sceneDescription, setSceneDescription] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const setupImages = rows.filter((r) => Boolean(r.imageData));
