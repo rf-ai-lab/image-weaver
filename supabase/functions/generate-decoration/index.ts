@@ -6,7 +6,7 @@ const corsHeaders = {
 };
 
 const REPLICATE_API = "https://api.replicate.com/v1";
-const PIX2PIX_VERSION = "30c1d0b916a6f8efce20493f5d61ee27491ab2a60437c13c588468b9810ec23f";
+const MODEL_VERSION = "06d6fae3b75ab68a28cd2900afa6033166910dd09fd9751047043a5bbb4c184b";
 
 function normalizeToken(raw: string | undefined): string {
   if (!raw) return "";
@@ -23,7 +23,7 @@ async function optimizePrompt(instruction: string, openaiKey: string): Promise<s
         messages: [
           {
             role: "system",
-            content: `You are a prompt engineer for instruct-pix2pix Stable Diffusion specialized in wedding venue decoration editing. Given a user instruction in any language, produce a concise English editing prompt. Rules: output ONLY the prompt. Keep same camera angle, perspective and background. Be specific about colors, materials and placement. End with: "Photorealistic, high quality, maintain original perspective and camera angle."`,
+            content: `You are a prompt engineer for SDXL ControlNet image editing specialized in wedding venue decoration. Given a user instruction in any language, produce a concise English prompt. Rules: output ONLY the prompt. Describe the full desired scene including all decoration elements. Be specific about colors, materials, sizes and placement. End with: "Photorealistic wedding venue, high quality photography, sharp details."`,
           },
           { role: "user", content: instruction },
         ],
@@ -34,7 +34,7 @@ async function optimizePrompt(instruction: string, openaiKey: string): Promise<s
     return data.choices?.[0]?.message?.content?.trim() || instruction;
   } catch (e) {
     console.error("Prompt optimization failed:", e);
-    return `Wedding decoration edit: ${instruction}. Keep exact camera angle and background. Photorealistic, high quality, maintain original perspective and camera angle.`;
+    return `Wedding venue decoration: ${instruction}. Photorealistic wedding venue, high quality photography, sharp details.`;
   }
 }
 
@@ -63,7 +63,7 @@ serve(async (req) => {
     if (!REPLICATE_TOKEN) throw new Error("REPLICATE_API_TOKEN não configurado.");
     if (!OPENAI_KEY) throw new Error("OPENAI_API_KEY não configurada.");
 
-    const { image, prompt, llm_provider = "openai" } = await req.json();
+    const { image, prompt } = await req.json();
     if (!image) throw new Error("Imagem é obrigatória.");
     if (!prompt) throw new Error("Prompt é obrigatório.");
 
@@ -74,13 +74,14 @@ serve(async (req) => {
       method: "POST",
       headers: { Authorization: `Bearer ${REPLICATE_TOKEN}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        version: PIX2PIX_VERSION,
+        version: MODEL_VERSION,
         input: {
           image,
           prompt: optimizedPrompt,
           num_inference_steps: 30,
-          image_guidance_scale: 1.5,
-          guidance_scale: 8,
+          condition_scale: 0.8,
+          guidance_scale: 7.5,
+          seed: 0,
         },
       }),
     });
